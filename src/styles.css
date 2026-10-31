@@ -120,6 +120,14 @@ img { max-width: 100%; }
 .btn.primary { background: var(--green-700); color: white; border-color: var(--green-700); }
 .btn.danger { background: var(--danger); color: white; border-color: var(--danger); }
 .btn.ghost { background: transparent; color: inherit; border-color: transparent; }
+.btn.address-hit {
+  width: 100%;
+  text-align: left;
+  background: white;
+  white-space: normal;
+  line-height: 1.35;
+}
+.card.problem { outline: 3px solid var(--danger); }
 .topbar .btn.ghost { color: #f7f3ea; }
 .btn.small { min-height: 40px; padding: 6px 10px; }
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }

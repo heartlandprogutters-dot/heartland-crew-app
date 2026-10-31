@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { GEOCODER_SEARCH } from "../src/config.js";
 import { destinationPoint, distanceMeters, fillTemplate, nextDelay, townFromAddress } from "../src/lib/geo.js";
 
 test("geocoder calls wait at least one second and do not autocomplete", () => {
@@ -7,6 +8,12 @@ test("geocoder calls wait at least one second and do not autocomplete", () => {
   assert.equal(nextDelay(state, 1000, 1100), 0);
   assert.equal(nextDelay(state, 1000, 1100), 1100);
   assert.equal(nextDelay(state, 3000, 1100), 200);
+});
+
+test("address search is biased toward the Heartland area and is not autocomplete", () => {
+  assert.match(GEOCODER_SEARCH, /viewbox=-91\.8,39\.2,-85\.8,35\.4/);
+  assert.match(GEOCODER_SEARCH, /bounded=0/);
+  assert.equal(/autocomplete/i.test(GEOCODER_SEARCH), false);
 });
 
 test("address templates stay easy to swap", () => {

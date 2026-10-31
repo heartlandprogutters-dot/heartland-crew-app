@@ -1,4 +1,4 @@
-import { SERVICES, TOWNS } from "../lists.js";
+import { SERVICES, TOWNS, serviceNameError } from "../lists.js";
 import { GEOCODER_REVERSE, GEOCODER_SEARCH } from "../config.js";
 import { el, field } from "../lib/dom.js";
 import { todayISO } from "../lib/format.js";
@@ -46,6 +46,12 @@ export function renderNewJob({ submit, restoreDraft = true }) {
   const status = el("p", { class: "status", role: "status", text: "" });
   const error = el("p", { class: "error", role: "alert" });
   error.hidden = true;
+  const submitError = el("p", { class: "error", role: "alert", dataset: { testid: "submit-error" } });
+  submitError.hidden = true;
+  let photoSection;
+  let workSection;
+  let locationSection;
+  let noteSection;
   const warningBox = el("div", { class: "warning", dataset: { testid: "summary-warning" } });
   warningBox.hidden = true;
   const ack = el("input", { type: "checkbox" });
@@ -104,12 +110,11 @@ export function renderNewJob({ submit, restoreDraft = true }) {
   }
 
   async function addFiles(list) {
-    error.hidden = true;
+    clearProblems();
     const files = [...list];
     for (const file of files) {
       if (photos.length >= 8) {
-        error.hidden = false;
-        error.textContent = "8 photos is the limit for one job.";
+        showError(new Error("8 photos is the limit for one job."), photoSection);
         break;
       }
       status.textContent = `Preparing photo ${photos.length + 1}…`;
@@ -188,14 +193,14 @@ export function renderNewJob({ submit, restoreDraft = true }) {
   }
 
   async function addVideo(file) {
-    error.hidden = true;
+    clearProblems();
     if (!file) return;
     if (!canTrimOnThisDevice()) {
-      showError(new Error("This phone cannot trim video. Update Safari or Chrome. The full recording was not added."));
+      showError(new Error("This phone cannot trim video. Update Safari or Chrome. The full recording was not added."), photoSection);
       return;
     }
     if (videos.length >= 2) {
-      showError(new Error("2 videos is the limit for one job."));
+      showError(new Error("2 videos is the limit for one job."), photoSection);
       return;
     }
     status.textContent = "Reading the video…";
@@ -227,10 +232,36 @@ export function renderNewJob({ submit, restoreDraft = true }) {
     pickVideo.value = "";
   });
 
-  function showError(err) {
-    error.hidden = false;
-    error.textContent = err.message || "Something went wrong.";
+  function clearProblems() {
+    submitError.hidden = true;
+    submitError.textContent = "";
+    error.hidden = true;
+    error.textContent = "";
+    for (const section of [photoSection, workSection, locationSection, noteSection]) {
+      if (!section) continue;
+      section.classList.remove("problem");
+      section.querySelector("[data-field-error]")?.remove();
+    }
+  }
+
+  function showProblem(message, section) {
+    submitError.hidden = false;
+    submitError.textContent = message;
     status.textContent = "";
+    if (section) {
+      section.classList.add("problem");
+      const note = el("p", { class: "error", role: "alert", dataset: { fieldError: "true" }, text: message });
+      const heading = section.querySelector("h2");
+      if (heading) heading.after(note);
+      else section.prepend(note);
+      section.scrollIntoView({ block: "start", behavior: "smooth" });
+    } else {
+      submitError.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+  }
+
+  function showError(err, section) {
+    showProblem(err?.message || "Something went wrong.", section);
   }
 
   function refreshWarnings() {
@@ -260,7 +291,7 @@ export function renderNewJob({ submit, restoreDraft = true }) {
     try {
       const current = place.value();
       sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
-        service: service.value,
+        service: service.value(),
         town: current.town,
         state: current.state,
         summary: summary.value,
@@ -273,12 +304,13 @@ export function renderNewJob({ submit, restoreDraft = true }) {
   });
 
   async function useGps() {
-    error.hidden = true;
+    clearProblems();
     if (!navigator.geolocation) {
-      showError(new Error("This phone cannot share location. Type the address instead."));
+      showError(new Error("This phone cannot share location. Type the address instead."), locationSection);
       return;
     }
-    status.textContent = "Finding this house…";
+    results.replaceChildren(el("p", { class: "status", role: "status", text: "Finding this house…" }));
+    status.textContent = "";
     const position = await new Promise((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(resolve, reject, {
         enableHighAccuracy: true,
@@ -295,41 +327,44 @@ export function renderNewJob({ submit, restoreDraft = true }) {
     };
     if (hit.town) place.setTown(hit.town, hit.state || place.value().state);
     const meters = Math.round(position.coords.accuracy || 0);
-    status.textContent = meters
+    const saved = meters
       ? `Location saved, about ${meters} m. ${hit.town ? `Town looks like ${hit.town}.` : ""}`
       : "Location saved.";
-    results.replaceChildren(el("p", { class: "private-note", text: hit.label ? `Check this house: ${hit.label}` : "Location saved from GPS." }));
+    const savedBits = [el("p", { class: "ok", text: saved })];
+    if (hit.label) savedBits.push(el("p", { class: "private-note", text: `Check this house: ${hit.label}` }));
+    results.replaceChildren(...savedBits);
   }
 
   async function findAddress() {
-    error.hidden = true;
-    status.textContent = "Searching OpenStreetMap…";
-    const hits = await lookup.search(addressInput.value);
-    status.textContent = "";
-    if (!hits.length) {
-      results.replaceChildren(el("p", { text: "No match. Try street, town, and state." }));
+    clearProblems();
+    results.replaceChildren(el("p", { class: "status", role: "status", dataset: { testid: "address-status" }, text: "Searching…" }));
+    let hits;
+    try {
+      hits = await lookup.search(addressInput.value);
+    } catch (err) {
+      results.replaceChildren(el("p", { class: "error", role: "alert", text: err.message || "Address search did not answer." }));
       return;
     }
-    results.replaceChildren(...hits.map((hit) => el("button", {
-      type: "button",
-      class: "btn ghost",
-      text: hit.label,
-      onclick: () => {
-        location = { lat: hit.lat, lng: hit.lng, address: hit.label, accuracy: null };
-        if (hit.town) place.setTown(hit.town, hit.state || place.value().state);
-        status.textContent = "Address match saved.";
-        results.replaceChildren(el("p", { class: "private-note", text: `Check this house: ${hit.label}` }));
-      },
-    })));
+    if (!hits.length) {
+      results.replaceChildren(el("p", { class: "error", role: "alert", text: "No match. Try street, town, and state, like 100 Broadway, Mayfield, KY." }));
+      return;
+    }
+    results.replaceChildren(
+      el("p", { class: "hint", text: "Tap the right address." }),
+      ...hits.map((hit) => el("button", {
+        type: "button",
+        class: "btn address-hit",
+        text: hit.label,
+        onclick: () => {
+          location = { lat: hit.lat, lng: hit.lng, address: hit.label, accuracy: null };
+          if (hit.town) place.setTown(hit.town, hit.state || place.value().state);
+          results.replaceChildren(el("p", { class: "ok", text: `Address saved. ${hit.label}` }));
+        },
+      })),
+    );
   }
 
-  const form = el("form", { class: "stack" }, [
-    el("h1", { tabindex: "-1", text: "New job" }),
-    draft ? el("p", { class: "ok", text: "Restored your note. Add the photos and location again." }) : null,
-    browserSupportsWebp() ? null : el("p", { class: "error", text: "This browser cannot save WebP photos. Update iOS or use Chrome." }),
-    error,
-    status,
-    el("section", { class: "card stack" }, [
+  photoSection = el("section", { class: "card stack" }, [
       el("h2", { text: "1. Photos and video" }),
       el("div", { class: "row" }, [
         el("button", { type: "button", class: "btn", text: "Take photo", onclick: () => take.click() }),
@@ -348,49 +383,72 @@ export function renderNewJob({ submit, restoreDraft = true }) {
       pickVideo,
       clipList,
       el("p", { class: "hint", text: "Record as long as you need. This phone keeps at most 30 seconds, about 720p, before anything is uploaded. Up to 2 clips." }),
-    ]),
-    el("section", { class: "card stack" }, [
+  ]);
+  workSection = el("section", { class: "card stack" }, [
       el("h2", { text: "2. Work and town" }),
-      field("Service", service),
+      service.element,
       place.element,
       field("Date finished", date),
-    ]),
-    el("section", { class: "card stack" }, [
+  ]);
+  locationSection = el("section", { class: "card stack" }, [
       el("h2", { text: "3. Exact location" }),
       el("p", { text: "Kent and Haley use this to see the house. The website pin is shifted 150–250 meters when they approve." }),
       el("div", { class: "row" }, [
-        el("button", { type: "button", class: "btn", text: "Use my location", onclick: () => useGps().catch((err) => showError(gpsError(err))) }),
-        el("button", { type: "button", class: "btn", text: "Find address", onclick: () => findAddress().catch(showError) }),
+        el("button", { type: "button", class: "btn", text: "Use my location", onclick: () => useGps().catch((err) => showError(gpsError(err), locationSection)) }),
+        el("button", { type: "button", class: "btn", dataset: { testid: "find-address" }, text: "Find address", onclick: () => findAddress() }),
       ]),
       field("Address", addressInput, "Search runs when you tap Find address."),
       results,
       el("p", { class: "hint", text: "Address search © OpenStreetMap contributors." }),
-    ]),
-    el("section", { class: "card stack" }, [
+  ]);
+  noteSection = el("section", { class: "card stack" }, [
       el("h2", { text: "4. Note for the website" }),
       field("Short summary", summary, "One line. No house number. No customer name."),
       counter,
       warningBox,
       ackLine,
-    ]),
+  ]);
+  const form = el("form", { class: "stack" }, [
+    el("h1", { tabindex: "-1", text: "New job" }),
+    draft ? el("p", { class: "ok", text: "Restored your note. Add the photos and location again." }) : null,
+    browserSupportsWebp() ? null : el("p", { class: "error", text: "This browser cannot save WebP photos. Update iOS or use Chrome." }),
+    error,
+    status,
+    photoSection,
+    workSection,
+    locationSection,
+    noteSection,
+    submitError,
     submitBtn,
   ]);
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    error.hidden = true;
+    clearProblems();
     const issues = refreshWarnings();
-    if (!photos.length) return showError(new Error("Add at least one photo."));
-    if (!location) return showError(new Error("Save a location with GPS or an address."));
+    const serviceName = service.value();
     const placeValue = place.value();
-    if (!placeValue.town || /\d/.test(placeValue.town)) return showError(new Error("Enter the town only, without a house number."));
-    if (issues.errors.length) return showError(new Error(issues.errors[0]));
+    const serviceProblem = serviceNameError(serviceName);
+    if (!photos.length) return showProblem("Add at least one photo.", photoSection);
+    if (serviceProblem) {
+      service.focus();
+      return showProblem(serviceProblem, workSection);
+    }
+    if (!placeValue.town || /\d/.test(placeValue.town)) return showProblem("Enter the town only, without a house number.", workSection);
+    if (!location) {
+      addressInput.focus();
+      return showProblem("Save a location with GPS, or type an address and tap Find address.", locationSection);
+    }
+    if (issues.errors.length) {
+      summary.focus();
+      return showProblem(issues.errors[0], noteSection);
+    }
     if (issues.warnings.length && !ack.checked) {
       ack.focus();
-      return showError(new Error("Check the privacy box, or change the note."));
+      return showProblem("Check the privacy box, or change the note.", noteSection);
     }
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      return showError(new Error("You are offline. Connect and try again."));
+      return showProblem("You are offline. Connect and try again.");
     }
     submitBtn.disabled = true;
     try {
@@ -408,7 +466,7 @@ export function renderNewJob({ submit, restoreDraft = true }) {
       }
       await submit({
         fields: {
-          service: service.value,
+          service: serviceName,
           town: placeValue.town,
           state: placeValue.state,
           summary: summary.value,

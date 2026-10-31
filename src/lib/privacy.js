@@ -20,10 +20,23 @@ export function isReviewName(value) {
   return /^[A-Z][a-z]+(-[A-Z][a-z]+)?( [A-Z]\.)?$/.test(String(value || "").trim());
 }
 
+function addPhrase(phrases, value) {
+  const lower = String(value || "")
+    .toLowerCase()
+    .replace(/&/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!lower) return;
+  phrases.add(lower);
+  const words = lower.split(" ");
+  for (let i = 0; i < words.length - 1; i += 1) phrases.add(`${words[i]} ${words[i + 1]}`);
+}
+
 function safePhrases(context) {
   const phrases = new Set();
-  for (const service of context?.services || []) phrases.add(String(service).toLowerCase());
-  for (const town of context?.towns || []) phrases.add(String(town.town || town).toLowerCase());
+  for (const service of context?.services || []) addPhrase(phrases, service);
+  for (const town of context?.towns || []) addPhrase(phrases, town.town || town);
   return phrases;
 }
 

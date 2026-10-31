@@ -23,6 +23,9 @@ test("summary warnings catch addresses and full names", () => {
 
   const service = inspectPublicText("Seamless Gutters across the front.", context);
   assert.deepEqual(service.warnings, []);
+
+  const skirting = inspectPublicText("Crew installed Mobile Home Skirting along the north side.", context);
+  assert.deepEqual(skirting.warnings, []);
 });
 
 test("phone, email, and links are errors", () => {

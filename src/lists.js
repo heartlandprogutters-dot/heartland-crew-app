@@ -1,15 +1,41 @@
-// Services offered by Heartland ProGutters.
+// Service names, in the same order and wording as the Services items in the
+// main menu on https://heartlandprogutters.com (hamburger menu and desktop nav).
+// Category labels (Cleaning, Home Repair, Contractor Services) are not services.
+// About, Gallery, Blog, Contact, Reviews, and Promotions are not services.
 // To add one: copy a line, change the name, commit, and the site will redeploy.
-// Keep the same spelling here and in the database notes. Slashes are fine.
+// The public map still stores this as the "service" text field. Older jobs may
+// say "Gutter Cleaning", "Gutter Repair", "Downspouts", or "Fascia/Soffit".
+// Those stay valid. Choose Other and the existing name is kept.
 
 export const SERVICES = [
-  "Seamless Gutters",
+  "Pressure Washing",
+  "Window Washing",
+  "Soft Washing",
+  "Gutter Cleaning & Repair",
+  "Mobile Home Skirting",
   "Gutter Guards",
-  "Gutter Repair",
-  "Downspouts",
-  "Gutter Cleaning",
-  "Fascia/Soffit",
+  "Seamless Gutters",
+  "Under-Deck Gutter Systems",
+  "Fascia and Soffit Repair",
+  "Vinyl Siding",
+  "Yard Drainage Solutions",
+  "Chop & Drop Gutter Machine Service",
+  "Gravel Driveway Rejuvenation",
+  "Rain Barrels & Water Storage",
+  "Christmas Lights",
 ];
+
+// Same rule the database uses in prepare_copy. Older map values still match.
+const SERVICE_NAME = /^[A-Za-z0-9 /&-]{2,60}$/;
+
+export function serviceNameError(value) {
+  const text = String(value || "").trim();
+  if (!text) return "Choose a service, or type one under Other.";
+  if (!SERVICE_NAME.test(text)) {
+    return "Use letters, numbers, spaces, &, or / in the service name (60 characters or fewer).";
+  }
+  return "";
+}
 
 // Towns around Farmington. The GPS button can still fill in a town that is not listed.
 // To add one: copy a line with the town and the two-letter state.

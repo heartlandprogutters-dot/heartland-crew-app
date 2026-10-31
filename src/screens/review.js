@@ -1,4 +1,4 @@
-import { SERVICES } from "../lists.js";
+import { SERVICES, serviceNameError } from "../lists.js";
 import { el, field } from "../lib/dom.js";
 import { buildBackup, parseImportText } from "../lib/feed.js";
 import { formatWhen, todayISO } from "../lib/format.js";
@@ -173,7 +173,7 @@ function renderDetail(job, ctx, status, onBack) {
     const starValue = stars.value ? Number(stars.value) : null;
     const any = name || text || when || starValue;
     return {
-      service: service.value,
+      service: service.value(),
       town: placed.town,
       state: placed.state,
       date: date.value,
@@ -190,6 +190,8 @@ function renderDetail(job, ctx, status, onBack) {
 
   function validate(form, { reviewRequired = false } = {}) {
     const issues = showWarning();
+    const serviceProblem = serviceNameError(form.service);
+    if (serviceProblem) throw new Error(serviceProblem);
     if (issues.errors.length) throw new Error(issues.errors[0]);
     if ((issues.warnings.length || issues.errors.length) && !ack.checked) {
       throw new Error("Review the privacy warning and check the box.");
@@ -272,7 +274,7 @@ function renderDetail(job, ctx, status, onBack) {
     photoRow,
     el("p", { class: "hint", text: "The first photo is the one the website shows first." }),
     renderReviewVideos(job, ctx),
-    field("Service", service),
+    service.element,
     place.element,
     field("Date", date),
     field("Title", title),

@@ -2,14 +2,45 @@ import { STATES, TOWNS } from "../lists.js";
 import { el, field } from "../lib/dom.js";
 
 export function serviceSelect(services, current) {
-  const select = el("select", { name: "service", required: "true" });
-  const options = !current || services.includes(current) ? services : [current, ...services];
-  for (const service of options) {
+  const listed = Boolean(current) && services.includes(current);
+  const select = el("select", { name: "service", required: "true", dataset: { testid: "service" } });
+  for (const service of services) {
     const option = el("option", { value: service, text: service });
-    if (service === current) option.selected = true;
+    if (listed && service === current) option.selected = true;
     select.append(option);
   }
-  return select;
+  const other = el("option", { value: "__other", text: "Other" });
+  if (current && !listed) other.selected = true;
+  select.append(other);
+  const custom = el("input", {
+    name: "customService",
+    value: current && !listed ? current : "",
+    maxlength: "60",
+    placeholder: "Type the service",
+    autocomplete: "off",
+    dataset: { testid: "custom-service" },
+  });
+  const customWrap = el("div", { class: current && !listed ? "stack" : "stack hidden" }, [custom]);
+  select.addEventListener("change", () => {
+    const show = select.value === "__other";
+    customWrap.classList.toggle("hidden", !show);
+    if (show) custom.focus();
+  });
+  const group = el("div", { class: "stack" }, [
+    field("Service", select, "Same names as the website menu. Choose Other to type one."),
+    customWrap,
+  ]);
+  return {
+    element: group,
+    focus() {
+      if (select.value === "__other") custom.focus();
+      else select.focus();
+    },
+    value() {
+      if (select.value === "__other") return custom.value.trim();
+      return select.value;
+    },
+  };
 }
 
 export function placeFields({ town = "", state = "KY" } = {}) {

@@ -7,6 +7,17 @@ export function friendlyError(error) {
   if (/email not confirmed/i.test(msg)) return "This login is not confirmed yet. Ask Kent.";
   if (/Failed to fetch|NetworkError|Load failed|network/i.test(msg)) return "Cannot reach the server. Check your connection and try again.";
   if (/too many requests|rate limit/i.test(msg)) return "Too many tries. Wait a minute and try again.";
+  if (/jwt expired|invalid jwt/i.test(msg)) return "Your sign-in expired. Sign in again, then try once more.";
+  if (/row-level security|permission denied|42501/i.test(msg)) {
+    return "This login cannot save that. Ask Kent if the account is turned off.";
+  }
+  if (/payload too large|entity too large|\b413\b/i.test(msg)) {
+    return "A photo or video is too large to upload. Remove one and try again.";
+  }
+  if (/mime type|content.type|invalid mime/i.test(msg)) {
+    return "That file type was rejected. Photos are saved as WebP, and videos as mp4 or webm.";
+  }
+  if (msg === "Not allowed.") return "This login cannot do that. Ask Kent if the account is turned off.";
   return msg;
 }
 

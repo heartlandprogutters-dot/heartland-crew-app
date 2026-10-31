@@ -11,8 +11,10 @@ export const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiO
 // waits at least one second between calls, and caches repeats.
 // To switch services later, replace these two lines and redeploy.
 // {query}, {lat}, and {lng} are filled in by the app.
+// viewbox biases results toward western Kentucky, Tennessee, southern Illinois,
+// and southeast Missouri around Mayfield. bounded=0 still allows matches outside that box.
 export const GEOCODER_SEARCH =
-  "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=5&countrycodes=us&q={query}";
+  "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=5&countrycodes=us&viewbox=-91.8,39.2,-85.8,35.4&bounded=0&q={query}";
 export const GEOCODER_REVERSE =
   "https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&lat={lat}&lon={lng}";
 

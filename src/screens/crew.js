@@ -1,5 +1,6 @@
 import { el, field } from "../lib/dom.js";
 import { ROLE_OPTIONS, roleLabel } from "../lib/roles.js";
+import { APP_VERSION } from "../version.js";
 
 export function renderCrew({ load, profile, actions }) {
   const root = el("section", { class: "stack" });
@@ -57,6 +58,7 @@ function paint(root, people, profile, actions, refresh, flash) {
   const list = el("div", { class: "stack" }, people.map((person) => personCard(person, profile, actions, refresh, error)));
   root.replaceChildren(
     el("h1", { tabindex: "-1", text: "Crew" }),
+    el("p", { class: "hint", dataset: { testid: "crew-version" }, text: `App version ${APP_VERSION}` }),
     form,
     el("h2", { text: "People" }),
     list.childNodes.length ? list : el("p", { text: "No one is on the list yet." }),

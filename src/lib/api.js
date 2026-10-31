@@ -18,6 +18,28 @@ export function friendlyError(error) {
     return "That file type was rejected. Photos are saved as WebP, and videos as mp4 or webm.";
   }
   if (msg === "Not allowed.") return "This login cannot do that. Ask Kent if the account is turned off.";
+  return explainDatabaseError(msg);
+}
+
+export function explainDatabaseError(message) {
+  const msg = String(message || "Something went wrong.");
+  const missing = /schema cache|does not exist|could not find the function/i.test(msg);
+  if (missing && /move_exact_pin/i.test(msg)) {
+    return "Saving a moved house pin needs a database update. In the Supabase SQL Editor, run supabase/migrations/20261031140000_move_pin.sql";
+  }
+  if (missing && /publish_job_videos|attach_video|job_videos/i.test(msg)) {
+    return "Short videos need a database update. In the Supabase SQL Editor, run supabase/migrations/20261031130000_videos.sql";
+  }
+  if (missing && /approve_job/i.test(msg)) {
+    return "Approving needs the first database setup. In the Supabase SQL Editor, run supabase/migrations/20261031120000_init.sql";
+  }
+  if (/profiles_role_check|role must be trainee|invalid input value for enum|lead_man/i.test(msg)) {
+    return "The Trainee and Lead Man roles need a database update. In the Supabase SQL Editor, run supabase/migrations/20261031150000_roles.sql";
+  }
+  if (missing) {
+    const name = msg.match(/function (?:public\.)?([a-z0-9_]+)/i)?.[1] || "a required function";
+    return `The database is missing ${name}. In the Supabase SQL Editor, run the files in supabase/migrations in order. The latest are 20261031140000_move_pin.sql and 20261031150000_roles.sql.`;
+  }
   return msg;
 }
 

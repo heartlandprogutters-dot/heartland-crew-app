@@ -5,7 +5,8 @@ import { formatWhen, todayISO } from "../lib/format.js";
 import { buildJobsZip } from "../lib/export.js";
 import { saveFile } from "../lib/download.js";
 import { inspectPublicText, isReviewName } from "../lib/privacy.js";
-import { signedPhotoUrl, signedVideoUrl } from "../lib/api.js";
+import { explainDatabaseError, signedPhotoUrl, signedVideoUrl } from "../lib/api.js";
+import { showToast } from "../lib/toast.js";
 import { mountMap } from "../lib/map.js";
 import { placeFields, serviceSelect } from "../ui/choices.js";
 
@@ -24,7 +25,9 @@ function paint(root, data, ctx) {
   const flash = sessionStorage.getItem("heartland-flash");
   if (flash) {
     sessionStorage.removeItem("heartland-flash");
+    status.className = "ok";
     status.textContent = flash;
+    window.scrollTo(0, 0);
   }
   const toolbar = el("div", { class: "row wrap" }, [
     el("button", { type: "button", class: "btn", dataset: { testid: "export-zip" }, text: "Export jobs.txt + photos", onclick: () => exportZip(status, ctx.actions) }),
@@ -74,7 +77,19 @@ function paint(root, data, ctx) {
     split,
   );
   if (selected) {
-    detail.append(renderDetail(selected, ctx, status, () => {
+    detail.append(renderDetail(selected, {
+      ...ctx,
+      finishApproved(jobId) {
+        const row = data.jobs.find((item) => item.id === jobId);
+        if (row) row.status = "approved";
+        sessionStorage.setItem("heartland-filter", "pending");
+        sessionStorage.setItem("heartland-flash", "Approved, it's on the map");
+        showToast("Approved, it's on the map", "ok");
+        paint(root, data, { ...ctx, selectedId: null });
+        const next = ctx.hashFor();
+        if (location.hash !== next) location.hash = next;
+      },
+    }, status, () => {
       const next = ctx.hashFor();
       if (location.hash === next) paint(root, data, { ...ctx, selectedId: null });
       else location.hash = next;
@@ -86,16 +101,20 @@ function paint(root, data, ctx) {
     if (mapSlot) {
       const start = exact || publicPoint || { lat: 36.7417, lng: -88.6366 };
       mapSlot._pin = { lat: start.lat, lng: start.lng };
-      mountMap(mapSlot, {
-        exact: exact || start,
-        publicPoint,
-        editable: true,
-        onExact(next) { mapSlot._pin = { lat: next.lat, lng: next.lng }; },
-      }).then((cleanup) => {
-        root._leave = cleanup;
-      }).catch((err) => {
-        mapSlot.replaceChildren(el("p", { class: "error", text: err?.message || "The map did not load." }));
-      });
+      Promise.resolve()
+        .then(() => mountMap(mapSlot, {
+          exact: exact || start,
+          publicPoint,
+          editable: true,
+          onExact(next) { mapSlot._pin = { lat: next.lat, lng: next.lng }; },
+        }))
+        .then((cleanup) => {
+          root._leave = cleanup;
+        })
+        .catch((err) => {
+          mapSlot.replaceChildren(el("p", { text: "The map did not open. You can still approve this job." }));
+          console.error(err);
+        });
     }
   }
 }
@@ -231,14 +250,19 @@ function renderDetail(job, ctx, status, onBack) {
   }
 
   function showActionError(message) {
-    const text = message || "Something went wrong.";
+    const text = explainDatabaseError(message || "Something went wrong.");
     actionError.hidden = false;
     actionError.textContent = text;
     error.hidden = false;
     error.textContent = text;
     actionStatus.textContent = "";
     status.textContent = "";
-    (actionError.closest("[data-approve-actions]") || actionError).scrollIntoView({ block: "end", behavior: "smooth" });
+    showToast(text, "error");
+    try {
+      actionError.scrollIntoView({ block: "center" });
+    } catch {
+      // A scroll failure must not hide the toast.
+    }
   }
 
   function showActionStatus(text) {
@@ -262,15 +286,32 @@ function renderDetail(job, ctx, status, onBack) {
   const buttons = el("div", { class: "row wrap" });
   if (job.status === "pending") {
     buttons.append(
-      el("button", { type: "button", class: "btn primary", dataset: { testid: "approve" }, text: "Approve", onclick: () => run(async () => {
-        const form = readForm();
-        validate(form);
-        if (!order.length) throw new Error("This job needs a photo.");
+      el("button", { type: "button", class: "btn primary", dataset: { testid: "approve" }, text: "Approve", onclick: (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        button.classList.add("busy");
+        button.textContent = "Approving…";
         showActionStatus("Approving…");
-        await ctx.actions.approve(job, form, order, (text) => { showActionStatus(text); });
-        sessionStorage.setItem("heartland-flash", "Approved. The website pin is saved.");
-        location.hash = ctx.hashFor();
-      }) }),
+        showToast("Approving…", "busy");
+        run(async () => {
+          try {
+            const form = readForm();
+            validate(form);
+            if (!order.length) throw new Error("This job needs a photo.");
+            await ctx.actions.approve(job, form, order, (text) => {
+              showActionStatus(text);
+              showToast(text, "busy");
+            });
+            if (typeof ctx.finishApproved === "function") ctx.finishApproved(job.id);
+            else showToast("Approved, it's on the map", "ok");
+          } catch (err) {
+            button.disabled = false;
+            button.classList.remove("busy");
+            button.textContent = "Approve";
+            throw err;
+          }
+        });
+      } }),
       el("button", { type: "button", class: "btn danger", text: "Reject", onclick: () => run(async () => {
         if (reason.value.trim().length < 3) throw new Error("Write a short reason so the crew can fix it.");
         await ctx.actions.reject(job.id, reason.value);

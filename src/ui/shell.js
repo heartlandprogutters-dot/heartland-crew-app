@@ -1,5 +1,6 @@
 import { el } from "../lib/dom.js";
 import { canManageCrew, canReview } from "../lib/roles.js";
+import { APP_VERSION } from "../version.js";
 import { icon } from "./icons.js";
 
 const ITEMS = [
@@ -32,6 +33,7 @@ export function renderShell({ profile, active, hashFor, onSignOut, signOutLabel 
       el("span", { class: "brand-text" }, [
         el("strong", { text: "Heartland Crew" }),
         el("small", { text: profile.display_name }),
+        el("small", { dataset: { testid: "app-version" }, text: `App version ${APP_VERSION}` }),
       ]),
     ]),
     el("div", { class: "top-actions" }, [

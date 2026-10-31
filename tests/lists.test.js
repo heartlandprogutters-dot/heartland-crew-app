@@ -41,4 +41,12 @@ test("upload and sign-in failures stay in plain words", () => {
   assert.match(friendlyError({ message: "Payload too large" }), /too large/i);
   assert.equal(friendlyError({ message: "Choose a service from the list." }), "Choose a service from the list.");
   assert.equal(friendlyError({ message: "Not allowed." }), "This login cannot do that. Ask Kent if the account is turned off.");
+  assert.match(
+    friendlyError({ message: "Could not find the function public.move_exact_pin(text, double precision, double precision) in the schema cache" }),
+    /20261031140000_move_pin\.sql/,
+  );
+  assert.match(
+    friendlyError({ message: "new row for relation \"profiles\" violates check constraint \"profiles_role_check\"" }),
+    /20261031150000_roles\.sql/,
+  );
 });

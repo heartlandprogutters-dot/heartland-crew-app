@@ -172,6 +172,36 @@ textarea { min-height: 96px; resize: vertical; }
 .warning, .banner { background: var(--warn-bg); color: var(--warn); }
 .error { background: var(--danger-bg); color: #7a241c; }
 .approve-actions { scroll-margin-bottom: 120px; }
+.toast {
+  position: fixed;
+  z-index: 40;
+  left: 12px;
+  right: 12px;
+  bottom: calc(78px + env(safe-area-inset-bottom));
+  padding: 12px 14px;
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  font-weight: 650;
+}
+.toast.error { background: var(--danger-bg); color: #7a241c; }
+.toast.ok { background: var(--green-100); color: #145233; }
+.toast.busy { background: var(--green-900); color: #f7f3ea; }
+.btn.busy::before {
+  content: "";
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 8px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -2px;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (min-width: 900px) {
+  .toast { left: auto; width: min(420px, calc(100% - 32px)); right: 16px; bottom: 16px; }
+}
 .ok { background: var(--green-100); color: #145233; }
 .private-note { background: #efe7da; }
 .sample-banner {

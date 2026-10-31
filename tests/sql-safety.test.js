@@ -47,6 +47,13 @@ test("row level security is enabled and the anon key is not handed the private t
   assert.match(storage, /job-photos-private/);
   assert.match(storage, /crew_upload_own_private_photos/);
   assert.match(storage, /approver_upload_public_photos/);
+  for (const sql of [storage, videos]) {
+    assert.doesNotMatch(sql, /alter\s+table\s+storage\./i);
+    assert.doesNotMatch(sql, /grant\s+.+\s+on\s+(table\s+)?storage\./i);
+    assert.match(sql, /on conflict \(id\) do nothing/i);
+    assert.match(sql, /drop policy if exists/i);
+    assert.match(sql, /create policy/i);
+  }
 });
 
 test("the app has no public sign-up and no service role key", () => {

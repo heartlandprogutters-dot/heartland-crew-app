@@ -1,6 +1,12 @@
 -- Heartland Crew photo storage.
 -- Run this second, after 20261031120000_init.sql.
--- Safe to run again.
+-- Safe to run again, including after a failed attempt. The SQL Editor runs the
+-- whole file in one transaction, so a failure rolls everything back.
+--
+-- Hosted Supabase already enables row level security on storage.objects and
+-- already grants the anon and authenticated roles. The SQL Editor cannot
+-- ALTER that table (it is not the owner), so this file only inserts buckets
+-- and replaces policies.
 --
 -- job-photos-private holds pictures until a job is approved.
 -- job-photos is the public website bucket. Only approvers can put files there,
@@ -10,16 +16,7 @@ insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_typ
 values
   ('job-photos-private', 'job-photos-private', false, 204800, array['image/webp']::text[]),
   ('job-photos', 'job-photos', true, 204800, array['image/webp']::text[])
-on conflict (id) do update
-set public = excluded.public,
-    file_size_limit = excluded.file_size_limit,
-    allowed_mime_types = excluded.allowed_mime_types;
-
-alter table storage.objects enable row level security;
-
-grant select on storage.objects to anon, authenticated;
-grant insert, update, delete on storage.objects to authenticated;
-grant select on storage.buckets to anon, authenticated;
+on conflict (id) do nothing;
 
 drop policy if exists crew_read_own_private_photos on storage.objects;
 create policy crew_read_own_private_photos

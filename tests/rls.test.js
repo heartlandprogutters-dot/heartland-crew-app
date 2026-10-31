@@ -349,6 +349,13 @@ test("row level security keeps exact locations off the public feed", { timeout: 
       `select name from storage.objects where bucket_id = 'job-photos-private'`,
     ));
     assert.equal(haleyPrivate.rows.length, 1);
+
+    await db.exec(read("../supabase/migrations/20261031120100_storage.sql"));
+    await db.exec(read("../supabase/migrations/20261031130000_videos.sql"));
+    const stillThere = await asUser(db, "anon", null, (tx) => tx.query(
+      `select count(*)::int as n from storage.objects where bucket_id = 'job-photos'`,
+    ));
+    assert.equal(stillThere.rows[0].n, 1);
   } finally {
     await db.close();
   }

@@ -338,14 +338,14 @@ begin
 end
 $do$;
 
+-- Hosted Supabase already enables row level security on storage.objects.
+-- Do not ALTER storage.objects or storage.buckets here. The SQL Editor is not
+-- the owner of those tables.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values
   ('job-videos-private', 'job-videos-private', false, 20971520, array['video/mp4', 'video/webm']::text[]),
   ('job-videos', 'job-videos', true, 20971520, array['video/mp4', 'video/webm']::text[])
-on conflict (id) do update
-set public = excluded.public,
-    file_size_limit = excluded.file_size_limit,
-    allowed_mime_types = excluded.allowed_mime_types;
+on conflict (id) do nothing;
 
 drop policy if exists crew_read_own_private_videos on storage.objects;
 create policy crew_read_own_private_videos

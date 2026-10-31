@@ -105,4 +105,10 @@ as $$
   select string_to_array(regexp_replace(object_name, '/[^/]*$', ''), '/')
 $$;
 
+-- Hosted Supabase already does this before our SQL runs. The migrations must
+-- not ALTER storage.objects or GRANT on it; the SQL Editor is not the owner.
+alter table storage.objects enable row level security;
 grant usage on schema storage to anon, authenticated;
+grant select on storage.objects to anon, authenticated;
+grant insert, update, delete on storage.objects to authenticated;
+grant select on storage.buckets to anon, authenticated;

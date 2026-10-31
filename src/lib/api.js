@@ -1,4 +1,4 @@
-import { photoFileName } from "./names.js";
+import { photoFileName, videoFileName } from "./names.js";
 import { getSupabase } from "./supabase.js";
 
 export function friendlyError(error) {
@@ -53,7 +53,7 @@ export async function changePassword(password) {
   if (error) throw new Error(friendlyError(error));
 }
 
-export async function submitNewJob({ fields, photos, location, onProgress }) {
+export async function submitNewJob({ fields, photos, videos = [], location, onProgress }) {
   const supabase = getSupabase();
   const { data: userData, error: userError } = await supabase.auth.getUser();
   if (userError || !userData.user) throw new Error("Sign in first.");
@@ -79,6 +79,17 @@ export async function submitNewJob({ fields, photos, location, onProgress }) {
       if (uploadError) throw new Error(friendlyError(uploadError));
       await rpc("attach_photo", { p_job_id: jobId, p_storage_path: path });
     }
+    for (let index = 0; index < videos.length; index += 1) {
+      onProgress?.(`Saving video ${index + 1} of ${videos.length}…`);
+      const ext = videos[index].ext === "webm" ? "webm" : "mp4";
+      const path = `${userId}/${jobId}/v${index + 1}.${ext}`;
+      const { error: uploadError } = await supabase.storage.from("job-videos-private").upload(path, videos[index].blob, {
+        contentType: ext === "webm" ? "video/webm" : "video/mp4",
+        upsert: true,
+      });
+      if (uploadError) throw new Error(friendlyError(uploadError));
+      await rpc("attach_video", { p_job_id: jobId, p_storage_path: path });
+    }
   } catch (error) {
     await rpc("delete_own_job", { p_job_id: jobId }).catch(() => {});
     throw new Error(`${friendlyError(error)} Nothing was kept. Please try again.`);
@@ -89,7 +100,7 @@ export async function submitNewJob({ fields, photos, location, onProgress }) {
 export async function listMyJobs() {
   const { data, error } = await getSupabase()
     .from("jobs")
-    .select("id, status, service, town, state, title, summary, job_date, rejection_reason, created_at, job_photos(id, storage_path, public_url, sort_order)")
+    .select("id, status, service, town, state, title, summary, job_date, rejection_reason, created_at, job_photos(id, storage_path, public_url, sort_order), job_videos(id, storage_path, public_url, sort_order)")
     .order("created_at", { ascending: false });
   if (error) throw new Error(friendlyError(error));
   return data || [];
@@ -101,6 +112,10 @@ export async function deleteOwnJob(job) {
     .map((photo) => photo.storage_path)
     .filter((path) => path && !path.startsWith("imported/") && !path.startsWith("http"));
   if (paths.length) await supabase.storage.from("job-photos-private").remove(paths);
+  const videoPaths = (job.job_videos || [])
+    .map((video) => video.storage_path)
+    .filter((path) => path && !path.startsWith("imported/") && !path.startsWith("http"));
+  if (videoPaths.length) await supabase.storage.from("job-videos-private").remove(videoPaths);
   await rpc("delete_own_job", { p_job_id: job.id });
 }
 
@@ -110,10 +125,16 @@ export async function signedPhotoUrl(path) {
   return data.signedUrl;
 }
 
+export async function signedVideoUrl(path) {
+  const { data, error } = await getSupabase().storage.from("job-videos-private").createSignedUrl(path, 60 * 30);
+  if (error) throw new Error(friendlyError(error));
+  return data.signedUrl;
+}
+
 export async function listReviewJobs() {
   const supabase = getSupabase();
   const [jobsRes, peopleRes] = await Promise.all([
-    supabase.from("jobs").select("*, job_locations(*), job_photos(*)").order("created_at", { ascending: false }),
+    supabase.from("jobs").select("*, job_locations(*), job_photos(*), job_videos(*)").order("created_at", { ascending: false }),
     supabase.from("profiles").select("id, display_name, role, email, disabled").order("display_name"),
   ]);
   if (jobsRes.error) throw new Error(friendlyError(jobsRes.error));
@@ -147,6 +168,28 @@ async function uploadPublicPhoto(blob, filename) {
   return data.publicUrl;
 }
 
+async function uploadPublicVideo(blob, filename, contentType) {
+  const supabase = getSupabase();
+  const bucket = supabase.storage.from("job-videos");
+  let name = filename;
+  let result = await bucket.upload(name, blob, {
+    contentType,
+    cacheControl: "31536000",
+    upsert: false,
+  });
+  if (result.error && /exists|duplicate|409/i.test(result.error.message || "")) {
+    name = filename.replace(/\.(mp4|webm)$/, `-${crypto.randomUUID().slice(0, 4)}.$1`);
+    result = await bucket.upload(name, blob, {
+      contentType,
+      cacheControl: "31536000",
+      upsert: false,
+    });
+  }
+  if (result.error) throw new Error(friendlyError(result.error));
+  const { data } = bucket.getPublicUrl(name);
+  return data.publicUrl;
+}
+
 export async function approveJob(job, form, orderedPhotos, onProgress) {
   const supabase = getSupabase();
   const urls = [];
@@ -158,7 +201,20 @@ export async function approveJob(job, form, orderedPhotos, onProgress) {
     const filename = photoFileName(form.service, form.town, form.date, index + 1);
     urls.push(await uploadPublicPhoto(data, filename));
   }
-  return rpc("approve_job", {
+  const pendingVideos = (job.job_videos || []).filter((video) => video.storage_path && !video.public_url);
+  const videoIds = [];
+  const videoUrls = [];
+  for (let index = 0; index < pendingVideos.length; index += 1) {
+    onProgress?.(`Publishing video ${index + 1} of ${pendingVideos.length}…`);
+    const video = pendingVideos[index];
+    const { data, error } = await supabase.storage.from("job-videos-private").download(video.storage_path);
+    if (error) throw new Error(friendlyError(error));
+    const ext = video.storage_path.endsWith(".webm") ? "webm" : "mp4";
+    const filename = videoFileName(form.service, form.town, form.date, index + 1, ext);
+    videoIds.push(video.id);
+    videoUrls.push(await uploadPublicVideo(data, filename, ext === "webm" ? "video/webm" : "video/mp4"));
+  }
+  const approved = await rpc("approve_job", {
     p_job_id: job.id,
     p_title: form.title,
     p_summary: form.summary,
@@ -174,6 +230,14 @@ export async function approveJob(job, form, orderedPhotos, onProgress) {
     p_review_date: form.reviewDate || null,
     p_gbp_url: form.gbpUrl || null,
   });
+  if (videoIds.length) {
+    await rpc("publish_job_videos", {
+      p_job_id: job.id,
+      p_video_ids: videoIds,
+      p_public_urls: videoUrls,
+    });
+  }
+  return approved;
 }
 
 export async function updateApprovedJob(job, form, orderedPhotos) {
@@ -215,15 +279,35 @@ export async function fetchFeed() {
 
 export async function downloadBackup() {
   const supabase = getSupabase();
-  const [jobsRes, locationsRes, photosRes] = await Promise.all([
+  const [jobsRes, locationsRes, photosRes, videosRes] = await Promise.all([
     supabase.from("jobs").select("*").order("created_at", { ascending: false }),
     supabase.from("job_locations").select("*"),
     supabase.from("job_photos").select("*"),
+    supabase.from("job_videos").select("*"),
   ]);
   if (jobsRes.error) throw new Error(friendlyError(jobsRes.error));
   if (locationsRes.error) throw new Error(friendlyError(locationsRes.error));
   if (photosRes.error) throw new Error(friendlyError(photosRes.error));
-  return { jobs: jobsRes.data || [], locations: locationsRes.data || [], photos: photosRes.data || [] };
+  if (videosRes.error) throw new Error(friendlyError(videosRes.error));
+  return {
+    jobs: jobsRes.data || [],
+    locations: locationsRes.data || [],
+    photos: photosRes.data || [],
+    videos: videosRes.data || [],
+  };
+}
+
+export async function removeJobVideo(video) {
+  const data = await rpc("remove_job_video", { p_video_id: video.id });
+  const info = typeof data === "string" ? JSON.parse(data) : data;
+  const supabase = getSupabase();
+  if (info?.storagePath && !String(info.storagePath).startsWith("imported/")) {
+    await supabase.storage.from("job-videos-private").remove([info.storagePath]);
+  }
+  if (info?.publicUrl) {
+    const name = decodeURIComponent(String(info.publicUrl).split("/").pop().split("?")[0]);
+    if (name) await supabase.storage.from("job-videos").remove([name]);
+  }
 }
 
 export function importJobs(kind, jobs) {

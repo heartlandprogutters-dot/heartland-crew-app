@@ -1,6 +1,6 @@
 import { el } from "../lib/dom.js";
 import { formatWhen } from "../lib/format.js";
-import { signedPhotoUrl } from "../lib/api.js";
+import { signedPhotoUrl, signedVideoUrl } from "../lib/api.js";
 
 const DRAFT_KEY = "heartland-draft-v1";
 
@@ -46,6 +46,15 @@ function jobCard(job, actions, root) {
     const src = photo.public_url || photo.previewUrl || (photo.storage_path ? await signedPhotoUrl(photo.storage_path).catch(() => "") : "");
     if (!src) return;
     figure.append(el("img", { src, alt: `${job.town} photo ${index + 1}`, referrerpolicy: "no-referrer" }));
+  });
+  const clips = el("div", { class: "stack clips" });
+  card.append(clips);
+  (job.job_videos || []).slice().sort((a, b) => a.sort_order - b.sort_order).forEach(async (video) => {
+    const src = video.public_url || video.previewUrl || (video.storage_path ? await signedVideoUrl(video.storage_path).catch(() => "") : "");
+    if (!src) return;
+    const node = el("video", { controls: true, playsinline: "", preload: "metadata", src });
+    node.playsInline = true;
+    clips.append(node);
   });
   const row = el("div", { class: "row" });
   if (job.status === "rejected") {

@@ -19,6 +19,7 @@ import {
   fetchFeed,
   downloadBackup,
   importJobs,
+  removeJobVideo,
   listPeople,
   createPerson,
   setPersonRole,
@@ -174,6 +175,7 @@ function draw() {
         feed: fetchFeed,
         backup: downloadBackup,
         import: importJobs,
+        removeVideo: (_job, video) => removeJobVideo(video),
       },
     });
   } else if (route.name === "crew") {

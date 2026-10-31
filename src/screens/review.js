@@ -5,7 +5,7 @@ import { formatWhen, todayISO } from "../lib/format.js";
 import { buildJobsZip } from "../lib/export.js";
 import { saveFile } from "../lib/download.js";
 import { inspectPublicText, isReviewName } from "../lib/privacy.js";
-import { signedPhotoUrl } from "../lib/api.js";
+import { signedPhotoUrl, signedVideoUrl } from "../lib/api.js";
 import { mountMap } from "../lib/map.js";
 import { placeFields, serviceSelect } from "../ui/choices.js";
 
@@ -271,6 +271,7 @@ function renderDetail(job, ctx, status, onBack) {
     error,
     photoRow,
     el("p", { class: "hint", text: "The first photo is the one the website shows first." }),
+    renderReviewVideos(job, ctx),
     field("Service", service),
     place.element,
     field("Date", date),
@@ -302,6 +303,39 @@ function renderDetail(job, ctx, status, onBack) {
   return panel;
 }
 
+function renderReviewVideos(job, ctx) {
+  const videos = (job.job_videos || []).slice().sort((a, b) => a.sort_order - b.sort_order);
+  if (!videos.length) return null;
+  const wrap = el("div", { class: "stack clips" }, [el("h3", { text: "Video" })]);
+  for (const video of videos) {
+    const node = el("video", { controls: true, playsinline: "", preload: "metadata" });
+    node.playsInline = true;
+    const src = video.public_url || video.previewUrl;
+    if (src) node.src = src;
+    else if (video.storage_path) {
+      signedVideoUrl(video.storage_path).then((url) => { node.src = url; }).catch(() => {});
+    }
+    const block = el("div", { class: "stack" }, [
+      node,
+      el("button", {
+        type: "button",
+        class: "btn small danger",
+        text: "Remove video",
+        onclick: () => {
+          if (!confirm("Remove this video from the job?")) return;
+          Promise.resolve(ctx.actions.removeVideo?.(job, video)).then(() => {
+            location.hash = ctx.hashFor(job.id);
+          }).catch((error) => {
+            block.append(el("p", { class: "error", text: error.message }));
+          });
+        },
+      }),
+    ]);
+    wrap.append(block);
+  }
+  return wrap;
+}
+
 function locationOf(job) {
   const loc = job.job_locations;
   if (Array.isArray(loc)) return loc[0] || null;
@@ -322,27 +356,35 @@ async function exportZip(status, actions) {
     let missing = 0;
     for (const job of feed) {
       for (const url of job.photos || []) {
-        try {
-          const response = await fetch(url);
-          if (!response.ok) throw new Error(String(response.status));
-          const name = decodeURIComponent((url.split("/").pop() || "photo.webp").split("?")[0]);
-          files.push({ name, bytes: new Uint8Array(await response.arrayBuffer()) });
-        } catch {
-          missing += 1;
-          files.push({
-            name: `MISSING-${missing}.txt`,
-            bytes: new TextEncoder().encode(`Could not download ${url}\n`),
-          });
-        }
+        files.push(await fetchMedia(url, "photos", () => { missing += 1; return missing; }));
+      }
+      for (const url of job.videos || []) {
+        files.push(await fetchMedia(url, "videos", () => { missing += 1; return missing; }));
       }
     }
-    const blob = await buildJobsZip(feed, files);
+    const blob = await buildJobsZip(feed, files.filter(Boolean));
     await saveFile(`heartland-jobs-${todayISO()}.zip`, blob);
     status.textContent = missing
-      ? `Zip saved. ${missing} photo${missing === 1 ? "" : "s"} could not be downloaded.`
-      : "Zip saved. jobs.txt is the website file. Photos are in the photos folder.";
+      ? `Zip saved. ${missing} file${missing === 1 ? "" : "s"} could not be downloaded.`
+      : "Zip saved. jobs.txt is the website file. Photos are in the photos folder and videos are in the videos folder.";
   } catch (error) {
     status.textContent = error.message;
+  }
+}
+
+async function fetchMedia(url, folder, nextMissing) {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(String(response.status));
+    const name = decodeURIComponent((url.split("/").pop() || "file").split("?")[0]);
+    return { name, bytes: new Uint8Array(await response.arrayBuffer()), folder };
+  } catch {
+    const n = nextMissing();
+    return {
+      name: `MISSING-${n}.txt`,
+      folder,
+      bytes: new TextEncoder().encode(`Could not download ${url}\n`),
+    };
   }
 }
 

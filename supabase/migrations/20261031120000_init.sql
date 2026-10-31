@@ -1233,6 +1233,11 @@ begin
         v_ord := v_ord + 1;
       end loop;
 
+      if to_regprocedure('public.import_job_videos(text, json)') is not null
+         and json_typeof(item -> 'videos') = 'array' then
+        perform public.import_job_videos(v_id, item -> 'videos');
+      end if;
+
       imported := imported + 1;
       end if;
     exception

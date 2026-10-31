@@ -5,6 +5,15 @@ import { todayISO } from "../lib/format.js";
 import { createLookup } from "../lib/geo.js";
 import { resizeToWebp, browserSupportsWebp } from "../lib/photos.js";
 import { inspectPublicText } from "../lib/privacy.js";
+import {
+  canTrimOnThisDevice,
+  clipStartLimit,
+  defaultClipWindow,
+  formatClock,
+  loadVideoPreview,
+  playClipWindow,
+  trimVideoFile,
+} from "../lib/video.js";
 import { placeFields, serviceSelect } from "../ui/choices.js";
 
 const DRAFT_KEY = "heartland-draft-v1";
@@ -22,10 +31,17 @@ function readDraft() {
 export function renderNewJob({ submit, restoreDraft = true }) {
   const draft = restoreDraft ? readDraft() : null;
   const photos = [];
+  const videos = [];
   let location = null;
   let warnedText = "";
   const root = el("section", { class: "stack" });
-  root._leave = () => photos.forEach((photo) => URL.revokeObjectURL(photo.url));
+  root._leave = () => {
+    photos.forEach((photo) => URL.revokeObjectURL(photo.url));
+    videos.forEach((clip) => {
+      if (clip.url) URL.revokeObjectURL(clip.url);
+      clip.video?.pause?.();
+    });
+  };
 
   const status = el("p", { class: "status", role: "status", text: "" });
   const error = el("p", { class: "error", role: "alert" });
@@ -44,6 +60,11 @@ export function renderNewJob({ submit, restoreDraft = true }) {
   take.hidden = true;
   pick.hidden = true;
   const thumbs = el("div", { class: "photos" });
+  const clipList = el("div", { class: "stack" });
+  const recordVideo = el("input", { type: "file", accept: "video/*", capture: "environment" });
+  const pickVideo = el("input", { type: "file", accept: "video/*" });
+  recordVideo.hidden = true;
+  pickVideo.hidden = true;
   const service = serviceSelect(SERVICES, draft?.service || SERVICES[0]);
   const place = placeFields({ town: draft?.town || "Farmington", state: draft?.state || "KY" });
   const summary = el("textarea", {
@@ -106,6 +127,104 @@ export function renderNewJob({ submit, restoreDraft = true }) {
   pick.addEventListener("change", () => {
     addFiles(pick.files).catch(showError);
     pick.value = "";
+  });
+
+  function renderClips() {
+    clipList.replaceChildren(...videos.map((clip, index) => clipCard(clip, index)));
+  }
+
+  function clipCard(clip, index) {
+    const limit = clipStartLimit(clip.duration, clip.length);
+    const label = el("p", { class: "hint", text: clipLabel(clip) });
+    const slider = el("input", {
+      type: "range",
+      min: "0",
+      max: String(limit),
+      step: "0.1",
+      value: String(clip.start),
+      dataset: { testid: "trim-slider" },
+    });
+    slider.disabled = limit <= 0;
+    slider.addEventListener("input", () => {
+      clip.start = Number(slider.value);
+      clip.blob = null;
+      label.textContent = clipLabel(clip);
+    });
+    const adjust = el("div", { class: "stack hidden" }, [
+      field("Start of the 30 second clip", slider, "Drag, then play the part this phone will keep."),
+      el("button", {
+        type: "button",
+        class: "btn",
+        text: "Play the part we'll keep",
+        onclick: () => playClipWindow(clip.video, clip.start, clip.length),
+      }),
+    ]);
+    const card = el("div", { class: "stack clip" }, [
+      el("strong", { text: `Video ${index + 1}` }),
+      clip.video,
+      label,
+      el("div", { class: "row" }, [
+        el("button", {
+          type: "button",
+          class: "btn",
+          text: "Adjust the clip",
+          onclick: () => adjust.classList.toggle("hidden"),
+        }),
+        el("button", {
+          type: "button",
+          class: "btn ghost",
+          text: "Remove video",
+          onclick: () => {
+            URL.revokeObjectURL(clip.url);
+            clip.video.pause();
+            videos.splice(index, 1);
+            renderClips();
+          },
+        }),
+      ]),
+      adjust,
+    ]);
+    return card;
+  }
+
+  async function addVideo(file) {
+    error.hidden = true;
+    if (!file) return;
+    if (!canTrimOnThisDevice()) {
+      showError(new Error("This phone cannot trim video. Update Safari or Chrome. The full recording was not added."));
+      return;
+    }
+    if (videos.length >= 2) {
+      showError(new Error("2 videos is the limit for one job."));
+      return;
+    }
+    status.textContent = "Reading the video…";
+    const preview = await loadVideoPreview(file);
+    const window = defaultClipWindow(preview.duration);
+    videos.push({
+      file,
+      video: preview.video,
+      url: preview.url,
+      duration: preview.duration,
+      width: preview.width,
+      height: preview.height,
+      start: window.start,
+      length: window.length,
+      blob: null,
+    });
+    renderClips();
+    status.textContent = preview.duration > 30
+      ? `Video added. The middle 30 seconds will be kept (${formatClock(window.start)} to ${formatClock(window.start + window.length)}).`
+      : "Video added. It is under 30 seconds, so the whole clip will be kept.";
+  }
+
+  recordVideo.addEventListener("change", () => {
+    addVideo(recordVideo.files?.[0]).catch(showError);
+    recordVideo.value = "";
+  });
+  pickVideo.addEventListener("change", () => {
+    addVideo(pickVideo.files?.[0]).catch(showError);
+    pickVideo.value = "";
   });
 
   function showError(err) {
@@ -211,7 +330,7 @@ export function renderNewJob({ submit, restoreDraft = true }) {
     error,
     status,
     el("section", { class: "card stack" }, [
-      el("h2", { text: "1. Photos" }),
+      el("h2", { text: "1. Photos and video" }),
       el("div", { class: "row" }, [
         el("button", { type: "button", class: "btn", text: "Take photo", onclick: () => take.click() }),
         el("button", { type: "button", class: "btn", text: "Choose photos", onclick: () => pick.click() }),
@@ -220,6 +339,15 @@ export function renderNewJob({ submit, restoreDraft = true }) {
       pick,
       thumbs,
       el("p", { class: "hint", text: "Up to 8 photos. Each one is shrunk to a WebP about 150 KB wide, max 1200 px. Camera location is stripped from the file." }),
+      el("h3", { text: "Video" }),
+      el("div", { class: "row" }, [
+        el("button", { type: "button", class: "btn", dataset: { testid: "record-video" }, text: "Record video", onclick: () => recordVideo.click() }),
+        el("button", { type: "button", class: "btn", dataset: { testid: "choose-video" }, text: "Choose video", onclick: () => pickVideo.click() }),
+      ]),
+      recordVideo,
+      pickVideo,
+      clipList,
+      el("p", { class: "hint", text: "Record as long as you need. This phone keeps at most 30 seconds, about 720p, before anything is uploaded. Up to 2 clips." }),
     ]),
     el("section", { class: "card stack" }, [
       el("h2", { text: "2. Work and town" }),
@@ -266,6 +394,18 @@ export function renderNewJob({ submit, restoreDraft = true }) {
     }
     submitBtn.disabled = true;
     try {
+      for (const clip of videos) {
+        status.textContent = "Preparing the video clip on this phone. This takes about as long as the clip.";
+        const prepared = await trimVideoFile(clip.file, {
+          start: clip.start,
+          length: clip.length,
+          onProgress: (done, total) => {
+            status.textContent = `Preparing the clip… ${formatClock(done)} of ${formatClock(total)}.`;
+          },
+        });
+        clip.blob = prepared.blob;
+        clip.ext = prepared.ext;
+      }
       await submit({
         fields: {
           service: service.value,
@@ -275,6 +415,7 @@ export function renderNewJob({ submit, restoreDraft = true }) {
           date: date.value,
         },
         photos,
+        videos: videos.map((clip) => ({ blob: clip.blob, ext: clip.ext })),
         location,
         onProgress: (text) => {
           status.textContent = text;
@@ -290,6 +431,12 @@ export function renderNewJob({ submit, restoreDraft = true }) {
   refreshWarnings();
   root.append(form);
   return root;
+}
+
+function clipLabel(clip) {
+  const end = clip.start + clip.length;
+  if (clip.duration <= 30) return `Full clip, ${formatClock(clip.duration)}.`;
+  return `Keeping ${formatClock(clip.start)} to ${formatClock(end)} of ${formatClock(clip.duration)}.`;
 }
 
 function gpsError(error) {

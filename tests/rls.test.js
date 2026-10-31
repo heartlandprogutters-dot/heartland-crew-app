@@ -36,6 +36,7 @@ test("row level security keeps exact locations off the public feed", { timeout: 
     await db.exec(read("../supabase/tests/prelude.sql"));
     await db.exec(read("../supabase/migrations/20261031120000_init.sql"));
     await db.exec(read("../supabase/migrations/20261031120100_storage.sql"));
+    await db.exec(read("../supabase/migrations/20261031130000_videos.sql"));
 
     const openFunctions = await db.query(`
       select proname
@@ -61,7 +62,7 @@ test("row level security keeps exact locations off the public feed", { timeout: 
           from pg_proc p
           join pg_namespace n on n.oid = p.pronamespace
           where n.nspname = 'public'
-            and p.proname in ('approve_job', 'create_job', 'admin_create_user', 'offset_pin', 'import_jobs')
+            and p.proname in ('approve_job', 'create_job', 'admin_create_user', 'offset_pin', 'import_jobs', 'attach_video', 'publish_job_videos', 'remove_job_video', 'import_job_videos')
         ) as anon_blocked
     `);
     assert.equal(priv.rows[0].anon_jobs, false);
@@ -157,6 +158,12 @@ test("row level security keeps exact locations off the public feed", { timeout: 
     const photo = await db.query(`select id from public.job_photos where job_id = $1`, [jobId]);
     const photoId = photo.rows[0].id;
     const publicUrl = `https://example.supabase.co/storage/v1/object/public/job-photos/seamless-gutters-murray-${today}-1.webp`;
+    const videoRow = await asUser(db, "authenticated", sam, (tx) => tx.query(
+      `select public.attach_video($1, $2) as id`,
+      [jobId, `${sam}/${jobId}/v1.mp4`],
+    ));
+    const videoId = videoRow.rows[0].id;
+    const videoUrl = `https://example.supabase.co/storage/v1/object/public/job-videos/seamless-gutters-murray-${today}-video-1.mp4`;
 
     const approved = asJson((await asUser(db, "authenticated", haley, (tx) => tx.query(
       `select public.approve_job($1, $2, $3, $4, $5, 'KY', $6::date, $7::uuid[], $8::text[], 'Mike L.', 5, 'Clean work and on time.', $6::date, null) as result`,
@@ -169,10 +176,15 @@ test("row level security keeps exact locations off the public feed", { timeout: 
     )).rows[0].meters);
     assert.ok(distance >= 150 && distance <= 250, `offset was ${distance}`);
     assert.notEqual(Number(approved.publicLat), 36.612349);
+    await asUser(db, "authenticated", haley, (tx) => tx.query(
+      `select public.publish_job_videos($1, $2::uuid[], $3::text[])`,
+      [jobId, [videoId], [videoUrl]],
+    ));
 
     const feed = asJson((await asUser(db, "anon", null, (tx) => tx.query(`select public.public_jobs_feed() as feed`))).rows[0].feed);
     assert.equal(feed.length, 1);
-    assert.deepEqual(Object.keys(feed[0]), ["id", "title", "service", "town", "state", "lat", "lng", "date", "summary", "photos", "review", "gbpUrl"]);
+    assert.deepEqual(Object.keys(feed[0]), ["id", "title", "service", "town", "state", "lat", "lng", "date", "summary", "photos", "review", "gbpUrl", "videos"]);
+    assert.deepEqual(feed[0].videos, [videoUrl]);
     assert.equal(feed[0].date, today);
     assert.deepEqual(feed[0].photos, [publicUrl]);
     assert.equal(feed[0].review.name, "Mike L.");
@@ -182,6 +194,12 @@ test("row level security keeps exact locations off the public feed", { timeout: 
     assert.equal(feedText.includes("Private Lane"), false);
     assert.equal(feedText.includes(sam), false);
     assert.equal(feedText.includes("sam@example.com"), false);
+    await expectFail(
+      () => asUser(db, "authenticated", sam, (tx) => tx.query(`select public.remove_job_video($1)`, [videoId])),
+      /Only Kent or Haley/,
+    );
+    const patVideos = await asUser(db, "authenticated", pat, (tx) => tx.query(`select id from public.job_videos`));
+    assert.equal(patVideos.rows.length, 0);
 
     const view = await asUser(db, "anon", null, (tx) => tx.query(`select id, lat, summary from public.approved_jobs`));
     assert.equal(view.rows.length, 1);
@@ -290,6 +308,31 @@ test("row level security keeps exact locations off the public feed", { timeout: 
       `insert into storage.objects (bucket_id, name) values ('job-photos', $1)`,
       [`seamless-gutters-murray-${today}-2.webp`],
     ));
+    const videoPath = `${sam}/${jobId}/v1.mp4`;
+    await asUser(db, "authenticated", sam, (tx) => tx.query(
+      `insert into storage.objects (bucket_id, name) values ('job-videos-private', $1)`,
+      [videoPath],
+    ));
+    await expectFail(
+      () => asUser(db, "authenticated", sam, (tx) => tx.query(
+        `insert into storage.objects (bucket_id, name) values ('job-videos', $1)`,
+        [`seamless-gutters-murray-${today}-video-1.mp4`],
+      )),
+      /row-level security|violates/,
+    );
+    await asUser(db, "authenticated", haley, (tx) => tx.query(
+      `insert into storage.objects (bucket_id, name) values ('job-videos', $1)`,
+      [`seamless-gutters-murray-${today}-video-1.mp4`],
+    ));
+    const anonVideo = await asUser(db, "anon", null, (tx) => tx.query(
+      `select name from storage.objects where bucket_id = 'job-videos'`,
+    ));
+    assert.equal(anonVideo.rows.length, 1);
+    const anonPrivateVideo = await asUser(db, "anon", null, (tx) => tx.query(
+      `select name from storage.objects where bucket_id = 'job-videos-private'`,
+    ));
+    assert.equal(anonPrivateVideo.rows.length, 0);
+
     const anonPublic = await asUser(db, "anon", null, (tx) => tx.query(
       `select name from storage.objects where bucket_id = 'job-photos'`,
     ));

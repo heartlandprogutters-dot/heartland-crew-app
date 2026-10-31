@@ -46,6 +46,7 @@ const state = {
       created_by: "sam",
       job_locations: { exact_lat: exact.lat, exact_lng: exact.lng, address: "Sample address for preview only" },
       job_photos: [{ ...samplePhoto }],
+      job_videos: [],
     },
     {
       id: "sample-approved",
@@ -68,6 +69,7 @@ const state = {
       approved_at: "2026-10-12T18:00:00Z",
       job_locations: { exact_lat: exact.lat, exact_lng: exact.lng + 0.01, address: "Sample address for preview only" },
       job_photos: [{ ...samplePhoto, id: "sample-photo-2", public_url: samplePhoto.previewUrl }],
+      job_videos: [],
     },
   ],
 };
@@ -133,6 +135,10 @@ export function renderPractice(route, rerender) {
           job.status = "approved";
           job.rejection_reason = null;
         },
+        async removeVideo(job, video) {
+          const saved = state.jobs.find((item) => item.id === job.id);
+          saved.job_videos = (saved.job_videos || []).filter((item) => item.id !== video.id);
+        },
         async feed() {
           return state.jobs.filter((job) => job.status === "approved" && job.public_lat != null).map((job) => toPublicJob({
             id: job.id,
@@ -145,6 +151,7 @@ export function renderPractice(route, rerender) {
             date: job.job_date,
             summary: job.summary,
             photos: (job.job_photos || []).map((photo) => photo.public_url || photo.previewUrl).filter(Boolean),
+            videos: (job.job_videos || []).map((video) => video.public_url || video.previewUrl).filter(Boolean),
             review: job.review_name ? {
               name: job.review_name,
               stars: job.review_stars,
@@ -180,6 +187,12 @@ export function renderPractice(route, rerender) {
               storage_path: photo.storage_path,
               sort_order: photo.sort_order,
             }))),
+            videos: state.jobs.flatMap((job) => (job.job_videos || []).map((video) => ({
+              job_id: job.id,
+              public_url: video.public_url,
+              storage_path: video.storage_path,
+              sort_order: video.sort_order,
+            }))),
           };
         },
         async import(kind, jobs) {
@@ -214,6 +227,12 @@ export function renderPractice(route, rerender) {
                 address: job.address,
               },
               job_photos: [],
+              job_videos: (job.videos || []).map((url, index) => ({
+                id: `${job.id}-video-${index}`,
+                public_url: url,
+                storage_path: "",
+                sort_order: index,
+              })),
             });
             imported += 1;
           }
@@ -277,6 +296,13 @@ export function renderPractice(route, rerender) {
             id: crypto.randomUUID(),
             storage_path: "",
             public_url: URL.createObjectURL(photo.blob),
+            sort_order: index,
+          })),
+          job_videos: (payload.videos || []).map((video, index) => ({
+            id: crypto.randomUUID(),
+            storage_path: "",
+            public_url: URL.createObjectURL(video.blob),
+            previewUrl: URL.createObjectURL(video.blob),
             sort_order: index,
           })),
         });

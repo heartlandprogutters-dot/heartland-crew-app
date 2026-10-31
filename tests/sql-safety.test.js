@@ -4,6 +4,7 @@ import test from "node:test";
 
 const init = readFileSync(new URL("../supabase/migrations/20261031120000_init.sql", import.meta.url), "utf8");
 const storage = readFileSync(new URL("../supabase/migrations/20261031120100_storage.sql", import.meta.url), "utf8");
+const videos = readFileSync(new URL("../supabase/migrations/20261031130000_videos.sql", import.meta.url), "utf8");
 const config = readFileSync(new URL("../src/config.js", import.meta.url), "utf8");
 const srcFiles = walk("src").map((file) => readFileSync(file, "utf8")).join("\n");
 
@@ -25,6 +26,15 @@ test("the public feed cannot see private columns", () => {
     "id", "title", "service", "town", "state", "lat", "lng", "date", "summary", "photos", "review", "name",
   ]);
   assert.ok(feed.includes("'gbpUrl'"));
+  const videoFeed = videos.split("-- BEGIN PUBLIC FEED")[1].split("-- END PUBLIC FEED")[0];
+  for (const word of ["exact_lat", "exact_lng", "job_locations", "created_by", "display_name", "rejection_reason", "storage_path"]) {
+    assert.equal(videoFeed.includes(word), false, word);
+  }
+  assert.match(videoFeed, /'videos'/);
+  assert.match(videos, /job_videos_select_own_or_staff/);
+  assert.match(videos, /crew_upload_own_private_videos/);
+  assert.match(videos, /approver_upload_public_videos/);
+  assert.match(videos, /20971520/);
 });
 
 test("row level security is enabled and the anon key is not handed the private tables", () => {

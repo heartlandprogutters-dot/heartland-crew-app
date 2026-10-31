@@ -33,11 +33,13 @@ Merge the pull request into the `main` branch. The rest of these steps happen on
 2. On GitHub, open `supabase/migrations/20261031120000_init.sql`. Click **Raw**, select all, and copy.
 3. Paste that into the SQL Editor and click **Run**. You want a success message. If you see "already exists", the file was already run.
 4. Open a new query. Copy all of `supabase/migrations/20261031120100_storage.sql` the same way and run it.
+5. Open one more query. Copy all of `supabase/migrations/20261031130000_videos.sql` and run it. This adds short job videos. If you already ran the first two files from an earlier copy of this app, you still need this third file.
 
 That creates the job tables, the privacy rules, the public jobs feed, and two photo folders:
 
 - `job-photos-private` — pictures before a job is approved
 - `job-photos` — pictures the website is allowed to show
+- `job-videos-private` and `job-videos` — the same idea for short clips, after you run the third SQL file
 
 ## 4. Turn off public sign-up
 
@@ -150,10 +152,11 @@ An approver can see and approve every job, including the exact map pin. An admin
 1. Open the app and tap **New job**.
 2. Take or choose up to 8 photos. The phone shrinks each one to a WebP around 150 KB, no wider than 1200 pixels, and removes the camera's hidden location stamp.
 3. Pick the service and the town. **Use my location** or type the address and tap **Find address**. Address search runs only when that button is tapped.
-4. Write one short line about the work. Leave out the house number and the customer's name.
-5. Tap **Send for approval**.
+4. A video is optional. **Record video** or **Choose video** can be any length. The phone keeps at most 30 seconds before upload. By default that is the middle of the recording. **Adjust the clip** moves the start, and **Play the part we'll keep** previews it. Preparing the clip takes about as long as the clip itself. If the phone cannot trim, it stops and does not upload the full recording.
+5. Write one short line about the work. Leave out the house number and the customer's name.
+6. Tap **Send for approval**.
 
-**My posts** shows Pending, Approved, or Rejected. A rejected job includes the reason. **Start a fixed copy** fills in the note again. Photos and the location have to be added again. **Delete** removes a job that is not on the website.
+**My posts** shows Pending, Approved, or Rejected, plus any clip. A rejected job includes the reason. **Start a fixed copy** fills in the note again. Photos and the location have to be added again. **Delete** removes a job that is not on the website.
 
 **Kent or Haley**
 
@@ -162,9 +165,10 @@ An approver can see and approve every job, including the exact map pin. An admin
 3. Fix the title or the summary if needed. Tap a photo and choose **Make main** if the cover shot should change.
 4. A review is optional. The name must look like `Mike L.` — first name and last initial. No surnames.
 5. A Google Business post link is optional. It must start with `https://`.
-6. **Approve** saves the website pin. It will not move later.
-7. **Reject** asks for a short reason the crew can read.
-8. On an approved job, **Save changes** edits the words without moving the pin. **Take off the website** hides it. **Put back on the website** shows it again at the same pin.
+6. A video plays on the review screen. **Remove video** takes it off the job.
+7. **Approve** saves the website pin and copies the trimmed clip into the public video folder. The pin will not move later.
+8. **Reject** asks for a short reason the crew can read.
+9. On an approved job, **Save changes** edits the words without moving the pin. **Take off the website** hides it. **Put back on the website** shows it again at the same pin.
 
 ## How the website map gets the jobs
 
@@ -192,19 +196,22 @@ The answer is a JSON list, newest approved job first. Each item looks like this:
   "summary": "one line, no backslashes",
   "photos": ["https://YOUR_PROJECT.supabase.co/storage/v1/object/public/job-photos/seamless-gutters-murray-2026-11-05-1.webp"],
   "review": null,
-  "gbpUrl": null
+  "gbpUrl": null,
+  "videos": ["https://YOUR_PROJECT.supabase.co/storage/v1/object/public/job-videos/seamless-gutters-murray-2026-11-05-video-1.mp4"]
 }
 ```
 
 When there is a review, `review` is `{ "name": "Mike L.", "stars": 5, "text": "Clean work and on time.", "date": "2026-11-05" }`.
 
-`lat` and `lng` are the shifted pin. The list has no street address, no exact pin, and no crew name.
+`lat` and `lng` are the shifted pin. The list has no street address, no exact pin, and no crew name. `videos` is an extra list. Older maps can ignore it. Jobs with no clip send `"videos": []`.
+
+Each clip is cut to 30 seconds on the phone and squeezed to about 720p, aiming for roughly 10 MB and never over 20 MB. The free plan allows 1 GB of files total and 50 MB per file. A phone that cannot trim shows a message and does not upload the raw recording. iPhone Safari and Android Chrome use the browser's own recorder. The clip is an mp4 when the phone can make one, and webm when that is the format the phone records.
 
 Photo files are named `service-town-YYYY-MM-DD-N.webp`, for example `seamless-gutters-murray-2026-11-05-1.webp`. `N` starts at 1. The main photo is number 1. If that file name is already taken, four extra letters are added before `.webp`.
 
 There is also a table view at `/rest/v1/approved_jobs`. The feed above is the one that is already sorted newest first.
 
-**Export jobs.txt + photos** downloads a zip. `jobs.txt` is that same JSON list. The `photos` folder has the image files. You can hand that zip to whoever updates the current website if it still reads a file instead of the live feed.
+**Export jobs.txt + photos** downloads a zip. `jobs.txt` is that same JSON list. The `photos` folder has the image files and the `videos` folder has the clips. You can hand that zip to whoever updates the current website if it still reads a file instead of the live feed. The backup file includes the videos too. Keep the backup private.
 
 ## Backups and old jobs
 

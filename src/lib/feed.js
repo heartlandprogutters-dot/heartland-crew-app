@@ -14,6 +14,7 @@ export const PUBLIC_KEYS = Object.freeze([
   "photos",
   "review",
   "gbpUrl",
+  "videos",
 ]);
 
 export function toPublicJob(input) {
@@ -38,6 +39,7 @@ export function toPublicJob(input) {
     photos: Array.isArray(input.photos) ? input.photos.filter(Boolean) : [],
     review,
     gbpUrl: input.gbpUrl ?? null,
+    videos: Array.isArray(input.videos) ? input.videos.filter(Boolean) : [],
   };
   const ordered = {};
   for (const key of PUBLIC_KEYS) ordered[key] = job[key];
@@ -51,11 +53,19 @@ export function assertPublicShape(job) {
   }
   if (typeof job.lat !== "number" || typeof job.lng !== "number") throw new Error("lat and lng must be numbers.");
   if (!Array.isArray(job.photos)) throw new Error("photos must be a list.");
+  if (!Array.isArray(job.videos)) throw new Error("videos must be a list.");
   if (job.summary.includes("\\") || job.summary.includes("\n")) throw new Error("Summary must be one line.");
   if (job.review !== null) {
     const reviewKeys = Object.keys(job.review).join(",");
     if (reviewKeys !== "name,stars,text,date") throw new Error("Review keys must be name, stars, text, date.");
   }
+}
+
+function mediaList(items) {
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((item) => (typeof item === "string" ? item : item?.publicUrl))
+    .filter((url) => typeof url === "string" && url.startsWith("https://"));
 }
 
 function photoList(photos) {
@@ -75,6 +85,7 @@ function baseJob(job) {
     date: String(job.date || "").slice(0, 10),
     summary: job.summary || "",
     photos: photoList(job.photos),
+    videos: mediaList(job.videos).filter((url) => /\.(mp4|webm)(\?|$)/i.test(url)),
     review: job.review && typeof job.review === "object" ? {
       name: job.review.name || "",
       stars: job.review.stars,
@@ -121,13 +132,19 @@ export function parseImportText(text) {
   throw new Error("This file is not a jobs list or a Heartland backup.");
 }
 
-export function buildBackup({ jobs, locations, photos, exportedAt }) {
+export function buildBackup({ jobs, locations, photos, videos, exportedAt }) {
   const locById = new Map((locations || []).map((row) => [row.job_id, row]));
   const photosById = new Map();
   for (const photo of photos || []) {
     const list = photosById.get(photo.job_id) || [];
     list.push(photo);
     photosById.set(photo.job_id, list);
+  }
+  const videosById = new Map();
+  for (const video of videos || []) {
+    const list = videosById.get(video.job_id) || [];
+    list.push(video);
+    videosById.set(video.job_id, list);
   }
   return {
     version: 1,
@@ -136,6 +153,7 @@ export function buildBackup({ jobs, locations, photos, exportedAt }) {
     jobs: (jobs || []).map((job) => {
       const location = locById.get(job.id);
       const jobPhotos = (photosById.get(job.id) || []).slice().sort((a, b) => a.sort_order - b.sort_order);
+      const jobVideos = (videosById.get(job.id) || []).slice().sort((a, b) => a.sort_order - b.sort_order);
       return {
         id: job.id,
         status: job.status,
@@ -154,6 +172,11 @@ export function buildBackup({ jobs, locations, photos, exportedAt }) {
           publicUrl: photo.public_url,
           storagePath: photo.storage_path,
           sortOrder: photo.sort_order,
+        })),
+        videos: jobVideos.map((video) => ({
+          publicUrl: video.public_url,
+          storagePath: video.storage_path,
+          sortOrder: video.sort_order,
         })),
         review: job.review_name ? {
           name: job.review_name,

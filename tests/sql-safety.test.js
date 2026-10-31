@@ -1,0 +1,48 @@
+import assert from "node:assert/strict";
+import { readFileSync, readdirSync } from "node:fs";
+import test from "node:test";
+
+const init = readFileSync(new URL("../supabase/migrations/20261031120000_init.sql", import.meta.url), "utf8");
+const storage = readFileSync(new URL("../supabase/migrations/20261031120100_storage.sql", import.meta.url), "utf8");
+const config = readFileSync(new URL("../src/config.js", import.meta.url), "utf8");
+const srcFiles = walk("src").map((file) => readFileSync(file, "utf8")).join("\n");
+
+function walk(dir) {
+  return readdirSync(new URL(`../${dir}/`, import.meta.url), { withFileTypes: true }).flatMap((entry) => {
+    const path = `${dir}/${entry.name}`;
+    return entry.isDirectory() ? walk(path) : [new URL(`../${path}`, import.meta.url)];
+  });
+}
+
+test("the public feed cannot see private columns", () => {
+  const feed = init.split("-- BEGIN PUBLIC FEED")[1].split("-- END PUBLIC FEED")[0];
+  for (const word of ["exact_lat", "exact_lng", "job_locations", "created_by", "display_name", "rejection_reason", "storage_path", "auth.users"]) {
+    assert.equal(feed.includes(word), false, word);
+  }
+  assert.match(feed, /status = 'approved'/);
+  const keys = [...feed.matchAll(/'([A-Za-z]+)',/g)].map((match) => match[1]);
+  assert.deepEqual(keys.slice(0, 12), [
+    "id", "title", "service", "town", "state", "lat", "lng", "date", "summary", "photos", "review", "name",
+  ]);
+  assert.ok(feed.includes("'gbpUrl'"));
+});
+
+test("row level security is enabled and the anon key is not handed the private tables", () => {
+  for (const table of ["profiles", "jobs", "job_locations", "job_photos"]) {
+    assert.match(init, new RegExp(`alter table public\\.${table} enable row level security`));
+  }
+  assert.match(init, /revoke all on table public\.job_locations from anon, authenticated/);
+  assert.match(init, /job_locations_select_staff_only/);
+  assert.match(init, /using \(public\.is_approver\(\)\)/);
+  assert.match(storage, /job-photos-private/);
+  assert.match(storage, /crew_upload_own_private_photos/);
+  assert.match(storage, /approver_upload_public_photos/);
+});
+
+test("the app has no public sign-up and no service role key", () => {
+  assert.equal(/\.signUp\(/.test(srcFiles), false);
+  assert.match(config, /YOUR_PROJECT/);
+  assert.match(config, /YOUR_SUPABASE_ANON_KEY/);
+  assert.equal(/service_role\s*=/.test(config), false);
+  assert.match(config, /Never put the service_role key/);
+});

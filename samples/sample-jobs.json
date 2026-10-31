@@ -1,0 +1,21 @@
+[
+  {
+    "id": "sample-murray-gutters",
+    "title": "Seamless Gutters in Murray, KY",
+    "service": "Seamless Gutters",
+    "town": "Murray",
+    "state": "KY",
+    "lat": 36.6105,
+    "lng": -88.3148,
+    "date": "2026-10-01",
+    "summary": "New seamless gutters on a ranch house.",
+    "photos": [],
+    "review": {
+      "name": "Mike L.",
+      "stars": 5,
+      "text": "Clean work and on time.",
+      "date": "2026-10-02"
+    },
+    "gbpUrl": null
+  }
+]

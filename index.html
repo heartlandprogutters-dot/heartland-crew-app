@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#14352a" />
     <meta name="description" content="Heartland ProGutters crew app for posting finished jobs." />
     <meta name="robots" content="noindex, nofollow" />
-    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <meta name="referrer" content="origin" />
     <meta name="format-detection" content="telephone=no" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -14,6 +14,7 @@
     <meta name="apple-mobile-web-app-title" content="HL Crew" />
     <link rel="icon" href="%BASE_URL%favicon.png?v=2" type="image/png" sizes="32x32" />
     <link rel="apple-touch-icon" href="%BASE_URL%icons/apple-touch-icon.png?v=2" sizes="180x180" />
+    <link rel="stylesheet" href="%BASE_URL%vendor/leaflet/leaflet.css" />
     <title>Heartland Crew</title>
   </head>
   <body>
@@ -23,6 +24,7 @@
     <noscript>
       <p>Heartland Crew needs JavaScript. Turn it on in the browser settings, then reload.</p>
     </noscript>
+    <script src="%BASE_URL%vendor/leaflet/leaflet.js"></script>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

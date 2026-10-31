@@ -93,8 +93,8 @@ function paint(root, data, ctx) {
         onExact(next) { mapSlot._pin = { lat: next.lat, lng: next.lng }; },
       }).then((cleanup) => {
         root._leave = cleanup;
-      }).catch(() => {
-        mapSlot.replaceChildren(el("p", { text: "The map did not load. Check the connection." }));
+      }).catch((err) => {
+        mapSlot.replaceChildren(el("p", { class: "error", text: err?.message || "The map did not load." }));
       });
     }
   }

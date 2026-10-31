@@ -31,23 +31,16 @@ export default defineConfig({
       workbox: {
         // Bump this when home-screen icons or cached app files must replace
         // an older copy already saved on a phone.
-        cacheId: 'heartland-crew-v6',
+        cacheId: 'heartland-crew-v7',
         cleanupOutdatedCaches: true,
         navigateFallback: 'index.html',
+        // Do not answer tile requests or real files with index.html.
+        navigateFallbackDenylist: [/^\/_/, /\/[^/?]+\.[^/]+$/, /tile\.openstreetmap\.org/],
         globPatterns: ['**/*.{js,css,html,png,svg,webp,ico,webmanifest,txt}'],
-        // Supabase is a different origin and must not be cached: responses can
-        // contain private job locations for signed-in approvers.
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/tile\.openstreetmap\.org\/.*/i,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'osm-tiles',
-              expiration: { maxEntries: 80, maxAgeSeconds: 60 * 60 * 24 * 14 },
-              cacheableResponse: { statuses: [0, 200] },
-            },
-          },
-        ],
+        // No runtime route for map tiles. The service worker must not intercept
+        // them: OpenStreetMap rejects fetches that arrive without a Referer,
+        // and a worker fetch was dropping that header. The browser sends
+        // Referer: origin on its own. Supabase stays uncached too.
       },
     }),
   ],

@@ -269,6 +269,10 @@ export async function updateApprovedJob(job, form, orderedPhotos) {
   });
 }
 
+export function moveExactPin(jobId, lat, lng) {
+  return rpc("move_exact_pin", { p_job_id: jobId, p_exact_lat: lat, p_exact_lng: lng });
+}
+
 export function rejectJob(jobId, reason) {
   return rpc("reject_job", { p_job_id: jobId, p_reason: reason });
 }

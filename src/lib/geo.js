@@ -52,6 +52,107 @@ export function distanceMeters(lat1, lng1, lat2, lng2) {
   return 2 * earth * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
+const ROUTE_STATES = {
+  KY: "Kentucky",
+  TN: "Tennessee",
+  IL: "Illinois",
+  MO: "Missouri",
+  IN: "Indiana",
+};
+
+export function parseLocationQuery(raw, context = {}) {
+  const text = String(raw || "").replace(/\s+/g, " ").trim();
+  const zipMatch = text.match(/\b(\d{5})(?:-\d{4})?\b/);
+  const zip = zipMatch ? zipMatch[1] : "";
+  const state = String(context.state || "").trim().toUpperCase();
+  const town = String(context.town || "").replace(/\s+/g, " ").trim();
+  let highway = matchHighway(text, state);
+  if (!highway && state && /^\d{1,4}$/.test(text)) {
+    highway = { state, number: text, us: false };
+  }
+  let house = "";
+  const leading = text.match(/^(\d{1,6})\b/);
+  const zipOnly = /^\d{5}(?:-\d{4})?$/.test(text);
+  if (leading && !zipOnly && leading[1] !== zip && !(highway && leading[1] === highway.number)) {
+    house = leading[1];
+  }
+  return { text, zip, town, state, highway, house, zipOnly };
+}
+
+function matchHighway(text, contextState) {
+  const named = text.match(/\b(?:(KY|TN|IL|MO|IN|US)\s*[- ]?)?(?:state\s+)?(?:highway|hwy|route|rt|sr)\.?\s*#?\s*(\d{1,4})\b/i);
+  if (named) {
+    const token = (named[1] || "").toUpperCase();
+    return { state: token === "US" ? "US" : (token || contextState || ""), number: named[2], us: token === "US" };
+  }
+  const bare = text.match(/\b(KY|TN|IL|MO|IN|US)\s*[- ]?\s*(\d{1,4})\b/i);
+  if (!bare) return null;
+  const token = bare[1].toUpperCase();
+  return { state: token === "US" ? "US" : token, number: bare[2], us: token === "US" };
+}
+
+export function roadPhrase(highway) {
+  if (!highway) return "";
+  const number = highway.number;
+  if (highway.us || highway.state === "US") return `US Highway ${number}`;
+  const name = ROUTE_STATES[highway.state];
+  if (name) return `${name} Highway ${number}`;
+  return `State Highway ${number}`;
+}
+
+function joinParts(parts) {
+  return parts
+    .map((part) => String(part || "").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join(", ")
+    .replace(/\s+,/g, ",")
+    .replace(/,\s*,/g, ", ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function searchSteps(raw, context = {}) {
+  const parsed = parseLocationQuery(raw, context);
+  const locality = joinParts([[parsed.town, parsed.state].filter(Boolean).join(", "), parsed.zip]);
+  const road = roadPhrase(parsed.highway);
+  const steps = [];
+  const push = (query, level) => {
+    const cleaned = String(query || "").replace(/\s+/g, " ").trim();
+    if (cleaned.length < 3) return;
+    if (steps.some((step) => step.query.toLowerCase() === cleaned.toLowerCase())) return;
+    steps.push({ query: cleaned, level });
+  };
+  if (!parsed.zipOnly) {
+    if (parsed.highway && parsed.house) push(joinParts([`${parsed.house} ${road}`, locality]), "house");
+    if (!parsed.highway && parsed.text) push(parsed.text, parsed.house ? "house" : "street");
+    if (road) push(joinParts([road, locality]), "street");
+  }
+  if (parsed.zip && (parsed.zipOnly || parsed.highway || !parsed.town)) push(parsed.zip, "place");
+  else if (parsed.town && parsed.state) push(`${parsed.town}, ${parsed.state}`, "place");
+  else if (parsed.zip) push(parsed.zip, "place");
+  return steps.slice(0, 3);
+}
+
+export function isFalseRouteHouse(hit, highway) {
+  if (!highway || !hit) return false;
+  if (String(hit.houseNumber || "") !== String(highway.number)) return false;
+  return !/\b(highway|hwy|route|interstate|state)\b/i.test(String(hit.road || ""));
+}
+
+function nominatimPrecision(row) {
+  const kind = String(row?.addresstype || row?.type || "");
+  if (row?.address?.house_number) return "house";
+  if (["house", "building", "farm"].includes(kind)) return "house";
+  if (["road", "highway", "residential", "tertiary", "secondary", "primary", "trunk", "unclassified", "service", "path"].includes(kind)) {
+    return "street";
+  }
+  return "place";
+}
+
+function titleTown(value) {
+  return String(value || "").toLowerCase().replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
+}
+
 function cacheKey(kind, value) {
   return `heartland-geo:${kind}:${value}`;
 }
@@ -79,6 +180,7 @@ function writeCache(storage, key, value) {
 export function createLookup({
   searchTemplate,
   reverseTemplate,
+  censusTemplate = "",
   fetchImpl = globalThis.fetch,
   now = Date.now,
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -86,6 +188,7 @@ export function createLookup({
   minMs = 1100,
 } = {}) {
   const gate = { next: 0 };
+  let censusOk = Boolean(censusTemplate);
 
   async function request(url, key) {
     const cached = readCache(storage, key);
@@ -102,18 +205,106 @@ export function createLookup({
     return value;
   }
 
+  function mapNominatim(row) {
+    return {
+      label: row.display_name,
+      lat: Number(row.lat),
+      lng: Number(row.lon),
+      houseNumber: row.address?.house_number || "",
+      road: row.address?.road || "",
+      precision: nominatimPrecision(row),
+      ...townFromAddress(row.address),
+    };
+  }
+
+  async function nominatimHits(query) {
+    const url = fillTemplate(searchTemplate, { query });
+    const rows = await request(url, cacheKey("search", query.toLowerCase()));
+    return (Array.isArray(rows) ? rows : []).slice(0, 5).map(mapNominatim)
+      .filter((row) => Number.isFinite(row.lat) && Number.isFinite(row.lng));
+  }
+
+  async function censusHits(query, level) {
+    if (!censusOk || !censusTemplate) return [];
+    const url = fillTemplate(censusTemplate, { query });
+    try {
+      const cached = readCache(storage, cacheKey("census", query.toLowerCase()));
+      const value = cached || await (async () => {
+        const response = await fetchImpl(url, {
+          headers: { Accept: "application/json" },
+          signal: typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(5000) : undefined,
+        });
+        if (!response.ok) return { result: { addressMatches: [] } };
+        const body = await response.json();
+        writeCache(storage, cacheKey("census", query.toLowerCase()), body);
+        return body;
+      })();
+      const matches = value?.result?.addressMatches;
+      if (!Array.isArray(matches)) return [];
+      const houseToken = (query.match(/^(\d{1,6})\b/) || [])[1] || "";
+      return matches.slice(0, 5).map((match) => {
+        const parts = match.addressComponents || {};
+        const askedHouse = level === "house" && houseToken
+          && new RegExp(`^${houseToken}\\b`, "i").test(match.matchedAddress || "");
+        return {
+          label: match.matchedAddress || query,
+          lat: Number(match.coordinates?.y),
+          lng: Number(match.coordinates?.x),
+          houseNumber: askedHouse ? houseToken : "",
+          road: parts.streetName || "",
+          precision: askedHouse ? "house" : "street",
+          town: titleTown(parts.city),
+          state: String(parts.state || "").toUpperCase(),
+        };
+      }).filter((row) => Number.isFinite(row.lat) && Number.isFinite(row.lng));
+    } catch {
+      censusOk = false;
+      return [];
+    }
+  }
+
   return {
-    async search(query) {
+    async search(query, context = {}, onStatus) {
+      const parsed = parseLocationQuery(query, context);
+      const steps = searchSteps(query, context);
+      if (!steps.length) throw new Error("Type a road, town, or ZIP, then tap Find address.");
+      onStatus?.("Searching…");
+      const censusQuery = steps.find((step) => step.level !== "place")?.query || "";
+      if (censusQuery) {
+        const censusLevel = steps.find((step) => step.query === censusQuery)?.level === "house" ? "house" : "street";
+        const fromCensus = (await censusHits(censusQuery, censusLevel))
+          .filter((hit) => !isFalseRouteHouse(hit, parsed.highway));
+        const houses = fromCensus.filter((hit) => hit.precision === "house");
+        if (houses.length) return { hits: houses, needsPin: false };
+        if (fromCensus.length) return { hits: fromCensus, needsPin: true };
+      }
+      for (const step of steps) {
+        if (step.level === "place") onStatus?.("No house number on that road. Centering on the town or ZIP…");
+        const hits = (await nominatimHits(step.query)).filter((hit) => !isFalseRouteHouse(hit, parsed.highway));
+        if (step.level === "house") {
+          const houses = hits.filter((hit) => hit.precision === "house");
+          if (houses.length) return { hits: houses, needsPin: false };
+          continue;
+        }
+        if (step.level === "street") {
+          if (hits.length) {
+            const houses = hits.filter((hit) => hit.precision === "house");
+            if (houses.length) return { hits: houses, needsPin: false };
+            return { hits, needsPin: true };
+          }
+          continue;
+        }
+        if (hits.length) {
+          return { hits: hits.map((hit) => ({ ...hit, precision: "place" })), needsPin: true };
+        }
+      }
+      return { hits: [], needsPin: false };
+    },
+    async place(query) {
       const cleaned = String(query || "").replace(/\s+/g, " ").trim();
-      if (cleaned.length < 5) throw new Error("Type a fuller address, then tap Find address.");
-      const url = fillTemplate(searchTemplate, { query: cleaned });
-      const rows = await request(url, cacheKey("search", cleaned.toLowerCase()));
-      return (Array.isArray(rows) ? rows : []).slice(0, 5).map((row) => ({
-        label: row.display_name,
-        lat: Number(row.lat),
-        lng: Number(row.lon),
-        ...townFromAddress(row.address),
-      })).filter((row) => Number.isFinite(row.lat) && Number.isFinite(row.lng));
+      if (cleaned.length < 3) return null;
+      const hits = await nominatimHits(cleaned);
+      return hits[0] || null;
     },
     async reverse(lat, lng) {
       const key = `${Number(lat).toFixed(4)},${Number(lng).toFixed(4)}`;

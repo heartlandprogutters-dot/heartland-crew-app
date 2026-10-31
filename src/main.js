@@ -20,6 +20,7 @@ import {
   downloadBackup,
   importJobs,
   removeJobVideo,
+  moveExactPin,
   listPeople,
   createPerson,
   setPersonRole,
@@ -176,6 +177,7 @@ function draw() {
         backup: downloadBackup,
         import: importJobs,
         removeVideo: (_job, video) => removeJobVideo(video),
+        movePin: (id, lat, lng) => moveExactPin(id, lat, lng),
       },
     });
   } else if (route.name === "crew") {

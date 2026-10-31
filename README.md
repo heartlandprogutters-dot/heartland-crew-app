@@ -34,6 +34,7 @@ Merge the pull request into the `main` branch. The rest of these steps happen on
 3. Paste that into the SQL Editor and click **Run**. You want a success message. If you see "already exists", the file was already run.
 4. Open a new query. Copy all of `supabase/migrations/20261031120100_storage.sql` and run it. If an earlier copy stopped with "must be owner of table objects", that attempt was undone. Run this updated file. It only adds the photo folders and their rules.
 5. Open one more query. Copy all of `supabase/migrations/20261031130000_videos.sql` and run it. This adds short job videos.
+6. Open one more query. Copy all of `supabase/migrations/20261031140000_move_pin.sql` and run it. This lets Kent or Haley drag the exact house pin. The website pin does not move.
 
 That creates the job tables, the privacy rules, the public jobs feed, and two photo folders:
 

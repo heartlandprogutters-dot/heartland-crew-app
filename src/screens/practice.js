@@ -135,6 +135,15 @@ export function renderPractice(route, rerender) {
           job.status = "approved";
           job.rejection_reason = null;
         },
+        async movePin(id, lat, lng) {
+          const job = state.jobs.find((item) => item.id === id);
+          job.job_locations = {
+            ...(job.job_locations || {}),
+            exact_lat: lat,
+            exact_lng: lng,
+            address: job.job_locations?.address || "Pinned by approver",
+          };
+        },
         async removeVideo(job, video) {
           const saved = state.jobs.find((item) => item.id === job.id);
           saved.job_videos = (saved.job_videos || []).filter((item) => item.id !== video.id);

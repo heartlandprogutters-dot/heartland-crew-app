@@ -1,5 +1,5 @@
 import { SERVICES, TOWNS, serviceNameError } from "../lists.js";
-import { GEOCODER_REVERSE, GEOCODER_SEARCH } from "../config.js";
+import { CENSUS_GEOCODER, GEOCODER_REVERSE, GEOCODER_SEARCH } from "../config.js";
 import { el, field } from "../lib/dom.js";
 import { todayISO } from "../lib/format.js";
 import { createLookup } from "../lib/geo.js";
@@ -14,10 +14,15 @@ import {
   playClipWindow,
   trimVideoFile,
 } from "../lib/video.js";
+import { mountPinMap } from "../lib/map.js";
 import { placeFields, serviceSelect } from "../ui/choices.js";
 
 const DRAFT_KEY = "heartland-draft-v1";
-const lookup = createLookup({ searchTemplate: GEOCODER_SEARCH, reverseTemplate: GEOCODER_REVERSE });
+const lookup = createLookup({
+  searchTemplate: GEOCODER_SEARCH,
+  reverseTemplate: GEOCODER_REVERSE,
+  censusTemplate: CENSUS_GEOCODER,
+});
 
 function readDraft() {
   try {
@@ -35,12 +40,15 @@ export function renderNewJob({ submit, restoreDraft = true }) {
   let location = null;
   let warnedText = "";
   const root = el("section", { class: "stack" });
+  let pinMap = null;
   root._leave = () => {
     photos.forEach((photo) => URL.revokeObjectURL(photo.url));
     videos.forEach((clip) => {
       if (clip.url) URL.revokeObjectURL(clip.url);
       clip.video?.pause?.();
     });
+    pinMap?.destroy();
+    pinMap = null;
   };
 
   const status = el("p", { class: "status", role: "status", text: "" });
@@ -88,7 +96,14 @@ export function renderNewJob({ submit, restoreDraft = true }) {
     autocomplete: "street-address",
     placeholder: "Street, town, state",
   });
-  const results = el("div", { class: "stack" });
+  const results = el("div", { class: "stack", dataset: { testid: "address-results" } });
+  const mapSlot = el("div", { class: "map picker-map hidden", dataset: { testid: "pin-map" } });
+  const mapHint = el("p", { class: "hint" });
+  mapHint.hidden = true;
+  const usePinBtn = el("button", { type: "button", class: "btn primary", dataset: { testid: "use-pin" }, text: "Use this pin" });
+  usePinBtn.hidden = true;
+  let pinPoint = null;
+  let lastHit = null;
   const submitBtn = el("button", { type: "submit", class: "btn primary", dataset: { testid: "submit-job" }, text: "Send for approval" });
 
   function renderThumbs() {
@@ -333,36 +348,117 @@ export function renderNewJob({ submit, restoreDraft = true }) {
     const savedBits = [el("p", { class: "ok", text: saved })];
     if (hit.label) savedBits.push(el("p", { class: "private-note", text: `Check this house: ${hit.label}` }));
     results.replaceChildren(...savedBits);
+    await showPinMap(location.lat, location.lng, "Drag the pin if this is not the house, then tap Use this pin.", 17);
+  }
+
+  async function showPinMap(lat, lng, message, zoom = 16) {
+    mapSlot.classList.remove("hidden");
+    mapHint.hidden = false;
+    mapHint.textContent = message;
+    usePinBtn.hidden = false;
+    pinPoint = { lat, lng };
+    if (!pinMap) {
+      pinMap = await mountPinMap(mapSlot, {
+        lat,
+        lng,
+        zoom,
+        onMove(next) { pinPoint = next; },
+      });
+    } else {
+      pinMap.setView(lat, lng, zoom);
+    }
+    mapSlot.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+
+  async function rememberPin() {
+    if (!pinPoint) return;
+    let label = "";
+    try {
+      const hit = await lookup.reverse(pinPoint.lat, pinPoint.lng);
+      label = hit.label;
+      if (hit.town) place.setTown(hit.town, hit.state || place.value().state);
+    } catch {
+      const placed = place.value();
+      label = placed.town ? `Pinned near ${placed.town}, ${placed.state}` : "Pinned location";
+    }
+    location = { lat: pinPoint.lat, lng: pinPoint.lng, address: label, accuracy: null };
+    results.replaceChildren(el("p", { class: "ok", text: `Pin saved. ${label}` }));
+  }
+
+  function focusHit(hit, needsPin) {
+    lastHit = hit;
+    if (hit.town) place.setTown(hit.town, hit.state || place.value().state);
+    const message = needsPin || hit.precision !== "house"
+      ? "No house number was found for this road. Drag the pin onto the house, then tap Use this pin."
+      : "Drag the pin if this is not the house, then tap Use this pin.";
+    if (!needsPin && hit.precision === "house") {
+      location = { lat: hit.lat, lng: hit.lng, address: hit.label, accuracy: null };
+    }
+    return showPinMap(hit.lat, hit.lng, message, hit.precision === "place" ? 13 : 16);
   }
 
   async function findAddress() {
     clearProblems();
+    const placed = place.value();
     results.replaceChildren(el("p", { class: "status", role: "status", dataset: { testid: "address-status" }, text: "Searching…" }));
-    let hits;
+    let found;
     try {
-      hits = await lookup.search(addressInput.value);
+      found = await lookup.search(addressInput.value, { town: placed.town, state: placed.state }, (text) => {
+        const statusLine = results.querySelector('[data-testid="address-status"]');
+        if (statusLine) statusLine.textContent = text;
+      });
     } catch (err) {
       results.replaceChildren(el("p", { class: "error", role: "alert", text: err.message || "Address search did not answer." }));
       return;
     }
-    if (!hits.length) {
-      results.replaceChildren(el("p", { class: "error", role: "alert", text: "No match. Try street, town, and state, like 100 Broadway, Mayfield, KY." }));
+    if (!found.hits.length) {
+      results.replaceChildren(el("p", { class: "error", role: "alert", text: "No match. Try a road and town, a ZIP such as 42023, or tap Set on map." }));
       return;
     }
+    const needsPin = found.needsPin;
     results.replaceChildren(
-      el("p", { class: "hint", text: "Tap the right address." }),
-      ...hits.map((hit) => el("button", {
+      el("p", { class: "hint", text: needsPin ? "Tap a place to center the map, then drag the pin to the house." : "Tap the right address." }),
+      ...found.hits.map((hit) => el("button", {
         type: "button",
         class: "btn address-hit",
         text: hit.label,
-        onclick: () => {
-          location = { lat: hit.lat, lng: hit.lng, address: hit.label, accuracy: null };
-          if (hit.town) place.setTown(hit.town, hit.state || place.value().state);
-          results.replaceChildren(el("p", { class: "ok", text: `Address saved. ${hit.label}` }));
-        },
+        onclick: () => { focusHit(hit, needsPin).catch((err) => showError(err, locationSection)); },
       })),
     );
+    await focusHit(found.hits[0], needsPin);
   }
+
+  async function openSetOnMap() {
+    clearProblems();
+    results.replaceChildren(el("p", { class: "status", role: "status", text: "Opening the map…" }));
+    try {
+      if (location) {
+        results.replaceChildren();
+        await showPinMap(location.lat, location.lng, "Drag the pin onto the house, then tap Use this pin.", 17);
+        return;
+      }
+      if (lastHit) {
+        results.replaceChildren();
+        await showPinMap(lastHit.lat, lastHit.lng, "Drag the pin onto the house, then tap Use this pin.", lastHit.precision === "place" ? 13 : 16);
+        return;
+      }
+      const placed = place.value();
+      const center = await lookup.place(`${placed.town}, ${placed.state}`);
+      results.replaceChildren();
+      if (!center) {
+        await showPinMap(36.7417, -88.6366, "Map opened near Mayfield. Drag the pin onto the house, then tap Use this pin.", 11);
+        return;
+      }
+      if (center.town) place.setTown(center.town, center.state || placed.state);
+      await showPinMap(center.lat, center.lng, `Map centered on ${placed.town}. Drag the pin onto the house, then tap Use this pin.`, 13);
+    } catch (err) {
+      showError(err, locationSection);
+    }
+  }
+
+  usePinBtn.addEventListener("click", () => {
+    rememberPin().catch((err) => showError(err, locationSection));
+  });
 
   photoSection = el("section", { class: "card stack" }, [
       el("h2", { text: "1. Photos and video" }),
@@ -396,10 +492,14 @@ export function renderNewJob({ submit, restoreDraft = true }) {
       el("div", { class: "row" }, [
         el("button", { type: "button", class: "btn", text: "Use my location", onclick: () => useGps().catch((err) => showError(gpsError(err), locationSection)) }),
         el("button", { type: "button", class: "btn", dataset: { testid: "find-address" }, text: "Find address", onclick: () => findAddress() }),
+        el("button", { type: "button", class: "btn", dataset: { testid: "set-on-map" }, text: "Set on map", onclick: () => openSetOnMap() }),
       ]),
-      field("Address", addressInput, "Search runs when you tap Find address."),
+      field("Address", addressInput, "Road and town, or a ZIP. Rural highways often have no house number."),
       results,
-      el("p", { class: "hint", text: "Address search © OpenStreetMap contributors." }),
+      mapHint,
+      mapSlot,
+      usePinBtn,
+      el("p", { class: "hint", text: "Address search uses the US Census and OpenStreetMap. Drag the pin when the house is not listed." }),
   ]);
   noteSection = el("section", { class: "card stack" }, [
       el("h2", { text: "4. Note for the website" }),
@@ -437,7 +537,7 @@ export function renderNewJob({ submit, restoreDraft = true }) {
     if (!placeValue.town || /\d/.test(placeValue.town)) return showProblem("Enter the town only, without a house number.", workSection);
     if (!location) {
       addressInput.focus();
-      return showProblem("Save a location with GPS, or type an address and tap Find address.", locationSection);
+      return showProblem("Save a location with GPS, Find address, or Set on map.", locationSection);
     }
     if (issues.errors.length) {
       summary.focus();

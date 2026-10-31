@@ -228,6 +228,20 @@ input[type="range"] { min-height: 32px; padding: 0; }
   color: inherit;
 }
 .map { height: 280px; border-radius: 14px; background: #e7e1d6; }
+.map.picker-map { height: 320px; }
+.leaflet-pin { background: transparent; border: 0; }
+.map-pin {
+  display: block;
+  width: 22px;
+  height: 22px;
+  margin: 2px 0 0 3px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  background: #c56a32;
+  border: 2px solid #14352a;
+  box-shadow: 0 2px 6px rgba(20, 53, 42, 0.35);
+}
+.map-pin.public { background: #d7efe0; border-color: #1f6b45; }
 .legend { color: var(--muted); font-size: 0.9rem; }
 .stars { display: flex; gap: 4px; }
 .star {

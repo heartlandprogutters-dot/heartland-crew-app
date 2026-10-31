@@ -37,6 +37,7 @@ test("row level security keeps exact locations off the public feed", { timeout: 
     await db.exec(read("../supabase/migrations/20261031120000_init.sql"));
     await db.exec(read("../supabase/migrations/20261031120100_storage.sql"));
     await db.exec(read("../supabase/migrations/20261031130000_videos.sql"));
+    await db.exec(read("../supabase/migrations/20261031140000_move_pin.sql"));
 
     const openFunctions = await db.query(`
       select proname
@@ -214,6 +215,21 @@ test("row level security keeps exact locations off the public feed", { timeout: 
     assert.equal(pinAfter.rows[0].public_lat, pinBefore.rows[0].public_lat);
     assert.equal(pinAfter.rows[0].public_lng, pinBefore.rows[0].public_lng);
 
+    await asUser(db, "authenticated", haley, (tx) => tx.query(
+      `select public.move_exact_pin($1, 36.62, -88.66)`,
+      [jobId],
+    ));
+    const moved = await db.query(`select exact_lat, exact_lng from public.job_locations where job_id = $1`, [jobId]);
+    assert.equal(Number(moved.rows[0].exact_lat), 36.62);
+    assert.equal(Number(moved.rows[0].exact_lng), -88.66);
+    const publicAfterMove = await db.query(`select public_lat, public_lng from public.jobs where id = $1`, [jobId]);
+    assert.equal(publicAfterMove.rows[0].public_lat, pinBefore.rows[0].public_lat);
+    assert.equal(publicAfterMove.rows[0].public_lng, pinBefore.rows[0].public_lng);
+    await expectFail(
+      () => asUser(db, "authenticated", sam, (tx) => tx.query(`select public.move_exact_pin($1, 36.7, -88.7)`, [jobId])),
+      /Only Kent or Haley/,
+    );
+
     await asUser(db, "authenticated", haley, (tx) => tx.query(`select public.withdraw_job($1, $2)`, [jobId, "Taken off the website for a correction."]));
     const hidden = asJson((await asUser(db, "anon", null, (tx) => tx.query(`select public.public_jobs_feed() as feed`))).rows[0].feed);
     assert.deepEqual(hidden, []);
@@ -352,6 +368,7 @@ test("row level security keeps exact locations off the public feed", { timeout: 
 
     await db.exec(read("../supabase/migrations/20261031120100_storage.sql"));
     await db.exec(read("../supabase/migrations/20261031130000_videos.sql"));
+    await db.exec(read("../supabase/migrations/20261031140000_move_pin.sql"));
     const stillThere = await asUser(db, "anon", null, (tx) => tx.query(
       `select count(*)::int as n from storage.objects where bucket_id = 'job-photos'`,
     ));

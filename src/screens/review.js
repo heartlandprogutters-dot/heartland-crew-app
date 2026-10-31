@@ -83,8 +83,15 @@ function paint(root, data, ctx) {
     const location = locationOf(selected);
     const exact = location ? { lat: location.exact_lat, lng: location.exact_lng } : null;
     const publicPoint = selected.public_lat != null ? { lat: selected.public_lat, lng: selected.public_lng } : null;
-    if (mapSlot && (exact || publicPoint)) {
-      mountMap(mapSlot, { exact, publicPoint }).then((cleanup) => {
+    if (mapSlot) {
+      const start = exact || publicPoint || { lat: 36.7417, lng: -88.6366 };
+      mapSlot._pin = { lat: start.lat, lng: start.lng };
+      mountMap(mapSlot, {
+        exact: exact || start,
+        publicPoint,
+        editable: true,
+        onExact(next) { mapSlot._pin = { lat: next.lat, lng: next.lng }; },
+      }).then((cleanup) => {
         root._leave = cleanup;
       }).catch(() => {
         mapSlot.replaceChildren(el("p", { text: "The map did not load. Check the connection." }));
@@ -291,14 +298,33 @@ function renderDetail(job, ctx, status, onBack) {
     el("h3", { text: "Private location" }),
     location
       ? el("p", { class: "private-note", text: location.address || "Exact spot saved. No street address was typed." })
-      : el("p", { text: "No exact location is stored for this job. The map shows the website pin when there is one." }),
+      : el("p", { text: "No exact location is stored yet. Drag the copper pin onto the house." }),
     location ? el("p", { class: "muted", text: `${Number(location.exact_lat).toFixed(5)}, ${Number(location.exact_lng).toFixed(5)}` }) : null,
     el("div", { class: "map", role: "img", "aria-label": "Private map of this job" }),
-    el("p", { class: "legend", text: location && job.public_lat != null
-      ? "Copper dot: exact house. Green dot: website pin."
-      : location
-        ? "Copper dot: exact house. The website pin is placed when you approve."
-        : "Green dot: website pin." }),
+    el("p", { class: "legend", text: job.public_lat != null
+      ? "Copper pin: exact house. Drag it, then save. The green pin is the website and stays put."
+      : "Copper pin: exact house. Drag it onto the house, then save. Approving shifts the website pin from that spot." }),
+    el("button", {
+      type: "button",
+      class: "btn",
+      dataset: { testid: "save-pin" },
+      text: "Save house pin",
+      onclick: () => run(async () => {
+        const slot = panel.querySelector(".map");
+        const next = slot?._pin;
+        if (!next) throw new Error("Move the pin onto the house first.");
+        await ctx.actions.movePin(job.id, next.lat, next.lng);
+        if (location) {
+          location.exact_lat = next.lat;
+          location.exact_lng = next.lng;
+        } else {
+          job.job_locations = { exact_lat: next.lat, exact_lng: next.lng, address: null };
+        }
+        status.textContent = job.public_lat != null
+          ? "House pin saved. The website pin stayed where it was."
+          : "House pin saved. Approving will place the website pin from this spot.";
+      }),
+    }),
     field(job.status === "approved" ? "Reason if you take it off the website" : "Reason if you reject it", reason),
     buttons,
   ].filter((node) => node != null));

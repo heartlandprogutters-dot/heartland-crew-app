@@ -1554,7 +1554,7 @@ declare
   r record;
   allow_auth text[] := array[
     'create_job', 'attach_photo', 'delete_own_job',
-    'approve_job', 'reject_job', 'withdraw_job', 'republish_job', 'update_approved_job',
+    'approve_job', 'reject_job', 'withdraw_job', 'republish_job', 'update_approved_job', 'move_exact_pin',
     'import_jobs', 'admin_create_user', 'admin_set_role', 'admin_set_disabled',
     'public_jobs_feed', 'is_active', 'is_approver'
   ];

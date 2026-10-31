@@ -17,6 +17,11 @@ export const GEOCODER_SEARCH =
   "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=5&countrycodes=us&viewbox=-91.8,39.2,-85.8,35.4&bounded=0&q={query}";
 export const GEOCODER_REVERSE =
   "https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&lat={lat}&lon={lng}";
+// US Census geocoder, no key. Checked from a phone browser on 2026-10-31:
+// geocoding.geo.census.gov sends no Access-Control-Allow-Origin header, so
+// the browser blocks it. Leave this blank until that changes. The search
+// code will use it before OpenStreetMap when a URL is set.
+export const CENSUS_GEOCODER = "";
 
 export function isConfigured() {
   return (

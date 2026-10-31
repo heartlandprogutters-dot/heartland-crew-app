@@ -132,10 +132,29 @@ function renderDetail(job, ctx, status, onBack) {
     starRow.append(button);
   }
   const gbp = el("input", { name: "gbp", value: job.gbp_url || "", placeholder: "https://", inputmode: "url" });
+  const reviewFilled = Boolean(job.review_name || job.review_text || job.review_stars || job.review_date);
+  const reviewFields = el("div", {
+    class: reviewFilled ? "stack" : "hidden",
+    dataset: { testid: "customer-review" },
+  }, [
+    el("h3", { text: "Review on the website" }),
+    el("p", { class: "hint", text: "Saved with this job. First name and last initial only, like Mike L." }),
+    field("Name", reviewName),
+    el("div", { class: "field" }, [el("span", { class: "field-label", text: "Stars" }), starRow, stars]),
+    field("Review text", reviewText),
+    field("Review date", reviewDate),
+  ]);
   const reason = el("textarea", { name: "reason", rows: "2", maxlength: "300" });
   const photoRow = el("div", { class: "photos" });
   const error = el("p", { class: "error", role: "alert" });
   error.hidden = true;
+  const actionError = el("p", {
+    class: "error action-error",
+    role: "alert",
+    dataset: { testid: "approve-error" },
+  });
+  actionError.hidden = true;
+  const actionStatus = el("p", { class: "status", dataset: { testid: "approve-status" } });
   const location = locationOf(job);
   const panel = el("div", { class: "card stack" });
 
@@ -211,26 +230,44 @@ function renderDetail(job, ctx, status, onBack) {
     }
   }
 
+  function showActionError(message) {
+    const text = message || "Something went wrong.";
+    actionError.hidden = false;
+    actionError.textContent = text;
+    error.hidden = false;
+    error.textContent = text;
+    actionStatus.textContent = "";
+    status.textContent = "";
+    (actionError.closest("[data-approve-actions]") || actionError).scrollIntoView({ block: "end", behavior: "smooth" });
+  }
+
+  function showActionStatus(text) {
+    actionError.hidden = true;
+    actionError.textContent = "";
+    actionStatus.textContent = text;
+    status.textContent = text;
+  }
+
   async function run(work) {
+    actionError.hidden = true;
+    actionError.textContent = "";
     error.hidden = true;
     try {
       await work();
     } catch (err) {
-      error.hidden = false;
-      error.textContent = err.message;
-      status.textContent = "";
+      showActionError(err?.message || "Something went wrong.");
     }
   }
 
   const buttons = el("div", { class: "row wrap" });
   if (job.status === "pending") {
     buttons.append(
-      el("button", { type: "button", class: "btn primary", text: "Approve", onclick: () => run(async () => {
+      el("button", { type: "button", class: "btn primary", dataset: { testid: "approve" }, text: "Approve", onclick: () => run(async () => {
         const form = readForm();
         validate(form);
         if (!order.length) throw new Error("This job needs a photo.");
-        status.textContent = "Approving…";
-        await ctx.actions.approve(job, form, order, (text) => { status.textContent = text; });
+        showActionStatus("Approving…");
+        await ctx.actions.approve(job, form, order, (text) => { showActionStatus(text); });
         sessionStorage.setItem("heartland-flash", "Approved. The website pin is saved.");
         location.hash = ctx.hashFor();
       }) }),
@@ -248,7 +285,7 @@ function renderDetail(job, ctx, status, onBack) {
         const form = readForm();
         validate(form);
         await ctx.actions.update(job, form, order);
-        status.textContent = "Saved. The website pin stayed where it was.";
+        showActionStatus("Saved. The website pin stayed where it was.");
       }) }),
       el("button", { type: "button", class: "btn danger", text: "Take off the website", onclick: () => run(async () => {
         if (reason.value.trim().length < 3) throw new Error("Write a short reason for taking it off the website.");
@@ -288,12 +325,7 @@ function renderDetail(job, ctx, status, onBack) {
     field("Summary", summary),
     warning,
     ackLine,
-    el("h3", { text: "Review on the website" }),
-    el("p", { class: "hint", text: "Optional. First name and last initial only, like Mike L." }),
-    field("Name", reviewName),
-    el("div", { class: "field" }, [el("span", { class: "field-label", text: "Stars" }), starRow, stars]),
-    field("Review text", reviewText),
-    field("Review date", reviewDate),
+    reviewFields,
     field("Google Business post link", gbp),
     el("h3", { text: "Private location" }),
     location
@@ -320,13 +352,17 @@ function renderDetail(job, ctx, status, onBack) {
         } else {
           job.job_locations = { exact_lat: next.lat, exact_lng: next.lng, address: null };
         }
-        status.textContent = job.public_lat != null
+        showActionStatus(job.public_lat != null
           ? "House pin saved. The website pin stayed where it was."
-          : "House pin saved. Approving will place the website pin from this spot.";
+          : "House pin saved. Approving will place the website pin from this spot.");
       }),
     }),
     field(job.status === "approved" ? "Reason if you take it off the website" : "Reason if you reject it", reason),
-    buttons,
+    el("div", { class: "stack approve-actions", dataset: { approveActions: "true" } }, [
+      actionError,
+      actionStatus,
+      buttons,
+    ]),
   ].filter((node) => node != null));
   return panel;
 }

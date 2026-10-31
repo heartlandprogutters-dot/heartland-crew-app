@@ -171,6 +171,7 @@ textarea { min-height: 96px; resize: vertical; }
 }
 .warning, .banner { background: var(--warn-bg); color: var(--warn); }
 .error { background: var(--danger-bg); color: #7a241c; }
+.approve-actions { scroll-margin-bottom: 120px; }
 .ok { background: var(--green-100); color: #145233; }
 .private-note { background: #efe7da; }
 .sample-banner {

@@ -9,7 +9,10 @@ export default defineConfig({
   base,
   plugins: [
     VitePWA({
-      registerType: 'autoUpdate',
+      // prompt mode so we can hold a reload while a New job form has data.
+      // skipWaiting and clientsClaim still activate the new worker immediately.
+      registerType: 'prompt',
+      injectRegister: null,
       includeAssets: ['favicon.png', 'icons/apple-touch-icon.png', 'robots.txt'],
       manifest: {
         id: base,
@@ -31,12 +34,35 @@ export default defineConfig({
       workbox: {
         // Bump this when home-screen icons or cached app files must replace
         // an older copy already saved on a phone.
-        cacheId: 'heartland-crew-v9',
+        cacheId: 'heartland-crew-v10',
+        skipWaiting: true,
+        clientsClaim: true,
         cleanupOutdatedCaches: true,
-        navigateFallback: 'index.html',
-        // Do not answer tile requests or real files with index.html.
-        navigateFallbackDenylist: [/^\/_/, /\/[^/?]+\.[^/]+$/, /tile\.openstreetmap\.org/],
+        // index.html and version.json are fetched network-first below so a
+        // phone sees a new build without a full restart.
+        globIgnores: ['**/index.html', '**/version.json'],
+        navigateFallback: null,
         globPatterns: ['**/*.{js,css,html,png,svg,webp,ico,webmanifest,txt}'],
+        runtimeCaching: [
+          {
+            urlPattern: ({ request }) => request.mode === 'navigate',
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'app-pages',
+              networkTimeoutSeconds: 3,
+              expiration: { maxEntries: 4, maxAgeSeconds: 60 * 60 * 24 },
+            },
+          },
+          {
+            urlPattern: /\/version\.json$/i,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'app-version',
+              networkTimeoutSeconds: 3,
+              expiration: { maxEntries: 1, maxAgeSeconds: 60 * 60 },
+            },
+          },
+        ],
         // No runtime route for map tiles. The service worker must not intercept
         // them: OpenStreetMap rejects fetches that arrive without a Referer,
         // and a worker fetch was dropping that header. The browser sends

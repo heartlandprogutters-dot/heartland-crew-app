@@ -36,6 +36,7 @@ import { renderPosts } from "./screens/posts.js";
 import { renderReview } from "./screens/review.js";
 import { renderCrew } from "./screens/crew.js";
 import { renderPractice } from "./screens/practice.js";
+import { watchForUpdates } from "./lib/updates.js";
 
 const app = document.querySelector("#app");
 let leave = () => {};
@@ -249,4 +250,5 @@ async function boot() {
   draw();
 }
 
+watchForUpdates();
 boot();

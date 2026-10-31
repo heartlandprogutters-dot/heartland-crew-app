@@ -15,6 +15,7 @@ import {
   trimVideoFile,
 } from "../lib/video.js";
 import { mountPinMap } from "../lib/map.js";
+import { setFormDirty } from "../lib/form-state.js";
 import { placeFields, serviceSelect } from "../ui/choices.js";
 
 const DRAFT_KEY = "heartland-draft-v1";
@@ -96,7 +97,19 @@ export function renderNewJob({ submit, restoreDraft = true }) {
     autocomplete: "street-address",
     placeholder: "Street, town, state",
   });
+  addressInput.value = draft?.address || "";
+  if (draft?.location && Number.isFinite(Number(draft.location.lat)) && Number.isFinite(Number(draft.location.lng))) {
+    location = {
+      lat: Number(draft.location.lat),
+      lng: Number(draft.location.lng),
+      address: String(draft.location.address || ""),
+      accuracy: draft.location.accuracy ?? null,
+    };
+  }
   const results = el("div", { class: "stack", dataset: { testid: "address-results" } });
+  if (location) {
+    results.replaceChildren(el("p", { class: "ok", text: `Pin saved. ${location.address || "House pin restored."}` }));
+  }
   const mapSlot = el("div", { class: "map picker-map hidden", dataset: { testid: "pin-map" } });
   const mapHint = el("p", { class: "hint" });
   mapHint.hidden = true;
@@ -117,6 +130,7 @@ export function renderNewJob({ submit, restoreDraft = true }) {
           URL.revokeObjectURL(photo.url);
           photos.splice(index, 1);
           renderThumbs();
+          syncDirty();
         },
       });
       const img = el("img", { src: photo.url, alt: `Photo ${index + 1} preview` });
@@ -138,6 +152,7 @@ export function renderNewJob({ submit, restoreDraft = true }) {
       renderThumbs();
     }
     status.textContent = photos.length ? `${photos.length} photo${photos.length === 1 ? "" : "s"} ready.` : "";
+    syncDirty();
   }
 
   take.addEventListener("change", () => {
@@ -199,6 +214,7 @@ export function renderNewJob({ submit, restoreDraft = true }) {
             clip.video.pause();
             videos.splice(index, 1);
             renderClips();
+            syncDirty();
           },
         }),
       ]),
@@ -236,6 +252,7 @@ export function renderNewJob({ submit, restoreDraft = true }) {
     status.textContent = preview.duration > 30
       ? `Video added. The middle 30 seconds will be kept (${formatClock(window.start)} to ${formatClock(window.start + window.length)}).`
       : "Video added. It is under 30 seconds, so the whole clip will be kept.";
+    syncDirty();
   }
 
   recordVideo.addEventListener("change", () => {
@@ -302,8 +319,20 @@ export function renderNewJob({ submit, restoreDraft = true }) {
     return issues;
   }
 
-  summary.addEventListener("input", () => {
+  function syncDirty() {
+    const dirty = Boolean(
+      photos.length
+      || videos.length
+      || location
+      || addressInput.value.trim()
+      || summary.value.trim()
+    );
+    setFormDirty(dirty);
     try {
+      if (!dirty) {
+        sessionStorage.removeItem(DRAFT_KEY);
+        return;
+      }
       const current = place.value();
       sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
         service: service.value(),
@@ -311,11 +340,18 @@ export function renderNewJob({ submit, restoreDraft = true }) {
         state: current.state,
         summary: summary.value,
         date: date.value,
+        address: addressInput.value,
+        location,
       }));
     } catch {
-      // Ignore storage failures.
+      // Ignore storage failures. The page still holds the form until reload.
     }
+  }
+
+  addressInput.addEventListener("input", syncDirty);
+  summary.addEventListener("input", () => {
     refreshWarnings();
+    syncDirty();
   });
 
   async function useGps() {
@@ -348,6 +384,7 @@ export function renderNewJob({ submit, restoreDraft = true }) {
     const savedBits = [el("p", { class: "ok", text: saved })];
     if (hit.label) savedBits.push(el("p", { class: "private-note", text: `Check this house: ${hit.label}` }));
     results.replaceChildren(...savedBits);
+    syncDirty();
     await showPinMap(location.lat, location.lng, "Drag the pin if this is not the house, then tap Use this pin.", 17);
   }
 
@@ -382,6 +419,7 @@ export function renderNewJob({ submit, restoreDraft = true }) {
       label = placed.town ? `Pinned near ${placed.town}, ${placed.state}` : "Pinned location";
     }
     location = { lat: pinPoint.lat, lng: pinPoint.lng, address: label, accuracy: null };
+    syncDirty();
     results.replaceChildren(el("p", { class: "ok", text: `Pin saved. ${label}` }));
   }
 
@@ -393,6 +431,7 @@ export function renderNewJob({ submit, restoreDraft = true }) {
       : "Drag the pin if this is not the house, then tap Use this pin.";
     if (!needsPin && hit.precision === "house") {
       location = { lat: hit.lat, lng: hit.lng, address: hit.label, accuracy: null };
+      syncDirty();
     }
     return showPinMap(hit.lat, hit.lng, message, hit.precision === "place" ? 13 : 16);
   }
@@ -510,7 +549,12 @@ export function renderNewJob({ submit, restoreDraft = true }) {
   ]);
   const form = el("form", { class: "stack" }, [
     el("h1", { tabindex: "-1", text: "New job" }),
-    draft ? el("p", { class: "ok", text: "Restored your note. Add the photos and location again." }) : null,
+    draft ? el("p", {
+      class: "ok",
+      text: location
+        ? "Restored your note and house pin. Add the photos again."
+        : "Restored your note. Add the photos and location again.",
+    }) : null,
     browserSupportsWebp() ? null : el("p", { class: "error", text: "This browser cannot save WebP photos. Update iOS or use Chrome." }),
     error,
     status,
@@ -580,6 +624,7 @@ export function renderNewJob({ submit, restoreDraft = true }) {
         },
       });
       sessionStorage.removeItem(DRAFT_KEY);
+      setFormDirty(false);
     } catch (err) {
       showError(err);
       submitBtn.disabled = false;

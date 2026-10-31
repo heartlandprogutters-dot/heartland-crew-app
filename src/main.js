@@ -12,6 +12,9 @@ import {
   submitNewJob,
   listReviewJobs,
   approveJob,
+  mergeJobs,
+  publishNewPhotos,
+  removeReviewPhoto,
   updateApprovedJob,
   rejectJob,
   withdrawJob,
@@ -182,6 +185,9 @@ function draw() {
         removeVideo: (_job, video) => removeJobVideo(video),
         movePin: (id, lat, lng) => moveExactPin(id, lat, lng),
         deleteJob: (job) => deleteStaffJob(job),
+        merge: (primaryId, childId) => mergeJobs(primaryId, childId),
+        removePhoto: (photo) => removeReviewPhoto(photo),
+        publishNew: (job, form, photos, onProgress) => publishNewPhotos(job, form, photos, onProgress),
       },
     });
   } else if (route.name === "crew") {
@@ -193,7 +199,15 @@ function draw() {
   } else {
     content = renderNewJob({
       submit: async (payload) => {
-        await submitNewJob(payload);
+        const result = await submitNewJob(payload);
+        const note = result?.mergeNote
+          ? `${result.mergeNote.charAt(0).toUpperCase()}${result.mergeNote.slice(1)}.`
+          : "";
+        const added = Array.isArray(result?.absorbed) && result.absorbed.length
+          ? `Photos from ${result.absorbed.join(", ")} were added to this job.`
+          : "";
+        const flash = [note, added, result?.warning].filter(Boolean).join(" ");
+        if (flash) sessionStorage.setItem("heartland-flash", flash);
         location.hash = "#/posts";
       },
     });

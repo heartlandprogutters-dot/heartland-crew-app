@@ -73,6 +73,30 @@ const state = {
       job_photos: [{ ...samplePhoto, id: "sample-photo-2", public_url: samplePhoto.previewUrl }],
       job_videos: [],
     },
+    {
+      id: "sample-lead",
+      status: "pending",
+      service: "Seamless Gutters",
+      town: "Farmington",
+      state: "KY",
+      title: "Lead gutters in Farmington, KY",
+      summary: "New seamless gutters on the same ranch house.",
+      job_date: todayISO(),
+      public_lat: null,
+      public_lng: null,
+      review_name: null,
+      review_stars: null,
+      review_text: null,
+      review_date: null,
+      gbp_url: null,
+      rejection_reason: null,
+      created_by: "lee",
+      created_at: new Date().toISOString(),
+      job_locations: { exact_lat: exact.lat, exact_lng: exact.lng, address: "Sample address for preview only" },
+      job_photos: [{ ...samplePhoto, id: "sample-photo-3" }],
+      job_videos: [],
+      job_contributors: [],
+    },
   ],
 };
 
@@ -149,6 +173,34 @@ export function renderPractice(route, rerender) {
             exact_lng: lng,
             address: job.job_locations?.address || "Pinned by approver",
           };
+        },
+        async merge(primaryId, childId) {
+          const primary = state.jobs.find((item) => item.id === primaryId);
+          const child = state.jobs.find((item) => item.id === childId);
+          if (!primary || !child) return;
+          primary.job_photos = [...(primary.job_photos || []), ...(child.job_photos || [])];
+          primary.job_videos = [...(primary.job_videos || []), ...(child.job_videos || [])];
+          primary.job_contributors = [
+            ...(primary.job_contributors || []),
+            { display_name: poster(child)?.display_name || "Crew" },
+          ];
+          if (primary.status === "approved") primary.new_photos = true;
+          child.job_photos = [];
+          child.job_videos = [];
+          child.status = "merged";
+          child.merged_into = primaryId;
+          const lead = (poster(primary)?.display_name || "the lead").split(" ")[0];
+          child.merge_note = `added to ${lead}'s job`;
+        },
+        async removePhoto(photo) {
+          for (const job of state.jobs) {
+            job.job_photos = (job.job_photos || []).filter((item) => item.id !== photo.id);
+          }
+        },
+        async publishNew(job) {
+          const saved = state.jobs.find((item) => item.id === job.id);
+          if (!saved) return;
+          saved.new_photos = false;
         },
         async removeVideo(job, video) {
           const saved = state.jobs.find((item) => item.id === job.id);

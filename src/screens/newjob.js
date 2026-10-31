@@ -16,6 +16,8 @@ import {
 } from "../lib/video.js";
 import { mountPinMap } from "../lib/map.js";
 import { setFormDirty } from "../lib/form-state.js";
+import { readPhotoExif } from "../lib/exif.js";
+import { chooseExif } from "../lib/merge.js";
 import { placeFields, serviceSelect } from "../ui/choices.js";
 
 const DRAFT_KEY = "heartland-draft-v1";
@@ -147,8 +149,9 @@ export function renderNewJob({ submit, restoreDraft = true }) {
         break;
       }
       status.textContent = `Preparing photo ${photos.length + 1}…`;
+      const exif = await readPhotoExif(file);
       const blob = await resizeToWebp(file);
-      photos.push({ blob, url: URL.createObjectURL(blob) });
+      photos.push({ blob, url: URL.createObjectURL(blob), exif });
       renderThumbs();
     }
     status.textContent = photos.length ? `${photos.length} photo${photos.length === 1 ? "" : "s"} ready.` : "";
@@ -579,6 +582,16 @@ export function renderNewJob({ submit, restoreDraft = true }) {
       return showProblem(serviceProblem, workSection);
     }
     if (!placeValue.town || /\d/.test(placeValue.town)) return showProblem("Enter the town only, without a house number.", workSection);
+    const photoExif = chooseExif(photos);
+    if (!location && photoExif.lat != null && photoExif.lng != null) {
+      location = {
+        lat: photoExif.lat,
+        lng: photoExif.lng,
+        address: "Location from the photo",
+        accuracy: null,
+      };
+      results.replaceChildren(el("p", { class: "ok", text: "Using the location saved in the photo." }));
+    }
     if (!location) {
       addressInput.focus();
       return showProblem("Save a location with GPS, Find address, or Set on map.", locationSection);
@@ -619,6 +632,7 @@ export function renderNewJob({ submit, restoreDraft = true }) {
         photos,
         videos: videos.map((clip) => ({ blob: clip.blob, ext: clip.ext })),
         location,
+        exif: photoExif,
         onProgress: (text) => {
           status.textContent = text;
         },

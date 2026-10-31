@@ -165,6 +165,7 @@ textarea { min-height: 96px; resize: vertical; }
 }
 .chip.approved { background: var(--green-100); color: #145233; }
 .chip.rejected { background: var(--danger-bg); color: #7a241c; }
+.chip.merged { background: var(--green-100); color: #145233; }
 .warning, .error, .ok, .private-note, .sample-banner, .banner {
   border-radius: 12px;
   padding: 10px 12px;

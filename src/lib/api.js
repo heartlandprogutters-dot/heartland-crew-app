@@ -33,6 +33,9 @@ export function explainDatabaseError(message) {
   if (missing && /delete_job/i.test(msg)) {
     return "Deleting a job needs a database update. In the Supabase SQL Editor, run supabase/migrations/20261031160000_delete_job.sql";
   }
+  if (missing && /settle_job|merge_jobs|publish_new_photos|remove_review_photo|job_contributors/i.test(msg)) {
+    return "Combining jobs needs a database update. In the Supabase SQL Editor, run supabase/migrations/20261031170000_job_merge.sql";
+  }
   if (missing && /approve_job/i.test(msg)) {
     return "Approving needs the first database setup. In the Supabase SQL Editor, run supabase/migrations/20261031120000_init.sql";
   }
@@ -89,7 +92,7 @@ export async function changePassword(password) {
   if (error) throw new Error(friendlyError(error));
 }
 
-export async function submitNewJob({ fields, photos, videos = [], location, onProgress }) {
+export async function submitNewJob({ fields, photos, videos = [], location, exif = null, onProgress }) {
   const supabase = getSupabase();
   const { data: userData, error: userError } = await supabase.auth.getUser();
   if (userError || !userData.user) throw new Error("Sign in first.");
@@ -130,7 +133,24 @@ export async function submitNewJob({ fields, photos, videos = [], location, onPr
     await rpc("delete_own_job", { p_job_id: jobId }).catch(() => {});
     throw new Error(`${friendlyError(error)} Nothing was kept. Please try again.`);
   }
-  return jobId;
+  try {
+    const data = await rpc("settle_job", {
+      p_job_id: jobId,
+      p_exif_lat: exif?.lat ?? null,
+      p_exif_lng: exif?.lng ?? null,
+      p_exif_taken_at: exif?.takenAt || null,
+    });
+    const settled = typeof data === "string" ? JSON.parse(data) : (data || {});
+    return { id: jobId, status: "pending", mergeNote: null, absorbed: [], ...settled };
+  } catch (error) {
+    return {
+      id: jobId,
+      status: "pending",
+      mergeNote: null,
+      absorbed: [],
+      warning: friendlyError(error),
+    };
+  }
 }
 
 export async function listMyJobs() {
@@ -139,7 +159,7 @@ export async function listMyJobs() {
   if (userError || !userData.user) throw new Error("Sign in first.");
   const { data, error } = await supabase
     .from("jobs")
-    .select("id, status, service, town, state, title, summary, job_date, rejection_reason, created_at, job_photos(id, storage_path, public_url, sort_order), job_videos(id, storage_path, public_url, sort_order)")
+    .select("id, status, service, town, state, title, summary, job_date, rejection_reason, created_at, merge_note, merged_into, new_photos, job_photos(id, storage_path, public_url, sort_order), job_videos(id, storage_path, public_url, sort_order), job_contributors(display_name)")
     .eq("created_by", userData.user.id)
     .order("created_at", { ascending: false });
   if (error) throw new Error(friendlyError(error));
@@ -174,7 +194,7 @@ export async function signedVideoUrl(path) {
 export async function listReviewJobs() {
   const supabase = getSupabase();
   const [jobsRes, peopleRes] = await Promise.all([
-    supabase.from("jobs").select("*, job_locations(*), job_photos(*), job_videos(*)").order("created_at", { ascending: false }),
+    supabase.from("jobs").select("*, job_locations(*), job_photos(*), job_videos(*), job_contributors(display_name, profile_id)").order("created_at", { ascending: false }),
     supabase.from("profiles").select("id, display_name, role, email, disabled").order("display_name"),
   ]);
   if (jobsRes.error) throw new Error(friendlyError(jobsRes.error));
@@ -296,6 +316,63 @@ export async function updateApprovedJob(job, form, orderedPhotos) {
     p_review_date: form.reviewDate || null,
     p_gbp_url: form.gbpUrl || null,
   });
+}
+
+export function mergeJobs(primaryId, childId) {
+  return rpc("merge_jobs", { p_primary: primaryId, p_child: childId });
+}
+
+export async function removeReviewPhoto(photo) {
+  const data = await rpc("remove_review_photo", { p_photo_id: photo.id });
+  const info = typeof data === "string" ? JSON.parse(data) : (data || {});
+  const supabase = getSupabase();
+  const path = info.storagePath;
+  if (path && !String(path).startsWith("imported/") && !String(path).startsWith("http")) {
+    await supabase.storage.from("job-photos-private").remove([path]);
+  }
+  if (info.publicName) {
+    await supabase.storage.from("job-photos").remove([info.publicName]);
+  }
+  return info;
+}
+
+export async function publishNewPhotos(job, form, orderedPhotos, onProgress) {
+  const fresh = (orderedPhotos || []).filter((photo) => photo.storage_path && !photo.public_url);
+  const ids = [];
+  const urls = [];
+  for (let index = 0; index < fresh.length; index += 1) {
+    onProgress?.(`Publishing photo ${index + 1} of ${fresh.length}…`);
+    const photo = fresh[index];
+    const { data, error } = await getSupabase().storage.from("job-photos-private").download(photo.storage_path);
+    if (error) throw new Error(friendlyError(error));
+    const filename = photoFileName(form.service, form.town, form.date, index + 1);
+    ids.push(photo.id);
+    urls.push(await uploadPublicPhoto(data, filename));
+  }
+  await rpc("publish_new_photos", {
+    p_job_id: job.id,
+    p_photo_ids: ids,
+    p_public_urls: urls,
+  });
+  const pendingVideos = (job.job_videos || []).filter((video) => video.storage_path && !video.public_url);
+  const videoIds = [];
+  const videoUrls = [];
+  for (let index = 0; index < pendingVideos.length; index += 1) {
+    onProgress?.(`Publishing video ${index + 1} of ${pendingVideos.length}…`);
+    const video = pendingVideos[index];
+    const { data, error } = await getSupabase().storage.from("job-videos-private").download(video.storage_path);
+    if (error) throw new Error(friendlyError(error));
+    const ext = video.storage_path.endsWith(".webm") ? "webm" : "mp4";
+    videoIds.push(video.id);
+    videoUrls.push(await uploadPublicVideo(data, videoFileName(form.service, form.town, form.date, index + 1, ext), ext === "webm" ? "video/webm" : "video/mp4"));
+  }
+  if (videoIds.length) {
+    await rpc("publish_job_videos", {
+      p_job_id: job.id,
+      p_video_ids: videoIds,
+      p_public_urls: videoUrls,
+    });
+  }
 }
 
 export function moveExactPin(jobId, lat, lng) {

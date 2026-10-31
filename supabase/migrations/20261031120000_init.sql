@@ -1609,7 +1609,8 @@ declare
     'create_job', 'attach_photo', 'delete_own_job',
     'approve_job', 'reject_job', 'withdraw_job', 'republish_job', 'update_approved_job', 'move_exact_pin',
     'import_jobs', 'admin_create_user', 'admin_set_role', 'admin_set_disabled',
-    'public_jobs_feed', 'is_active', 'is_approver', 'is_field_role', 'role_is_field', 'can_post', 'can_read_job'
+    'public_jobs_feed', 'is_active', 'is_approver', 'is_field_role', 'role_is_field', 'can_post', 'can_read_job',
+    'settle_job', 'merge_jobs', 'publish_new_photos', 'remove_review_photo'
   ];
 begin
   for r in

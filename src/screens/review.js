@@ -6,6 +6,7 @@ import { buildJobsZip } from "../lib/export.js";
 import { saveFile } from "../lib/download.js";
 import { inspectPublicText, isReviewName } from "../lib/privacy.js";
 import { explainDatabaseError, signedPhotoUrl, signedVideoUrl } from "../lib/api.js";
+import { possibleDuplicates } from "../lib/merge.js";
 import { showToast } from "../lib/toast.js";
 import { mountMap } from "../lib/map.js";
 import { placeFields, serviceSelect } from "../ui/choices.js";
@@ -41,7 +42,7 @@ function paint(root, data, ctx) {
   const current = filters.includes(sessionStorage.getItem("heartland-filter")) ? sessionStorage.getItem("heartland-filter") : "pending";
   const filterRow = el("div", { class: "row", role: "tablist" });
   for (const name of filters) {
-    const count = data.jobs.filter((job) => job.status === name).length;
+    const count = data.jobs.filter((job) => matchesFilter(job, name)).length;
     filterRow.append(el("button", {
       type: "button",
       class: name === current ? "btn small primary" : "btn small",
@@ -54,13 +55,17 @@ function paint(root, data, ctx) {
       },
     }));
   }
-  const visible = data.jobs.filter((job) => job.status === current);
+  const visible = data.jobs.filter((job) => matchesFilter(job, current));
   const selected = data.jobs.find((job) => job.id === ctx.selectedId) || null;
   const queue = el("div", { class: "queue stack" }, visible.length
     ? visible.map((job) => el("a", { class: "card job-link", href: ctx.hashFor(job.id) }, [
         el("strong", { text: job.title }),
         el("span", { class: "muted", text: `${job.town}, ${job.state} · ${formatWhen(job.job_date)}` }),
         job.poster ? el("span", { class: "muted", text: `Posted by ${job.poster.display_name}` }) : null,
+        job.new_photos ? el("span", { class: "muted", text: "New photos added" }) : null,
+        possibleDuplicates(job, data.jobs).length
+          ? el("span", { class: "muted", text: `Possible duplicate of ${possibleDuplicates(job, data.jobs)[0].title}` })
+          : null,
       ]))
     : [el("p", { class: "empty", text: current === "pending" ? "No jobs waiting. You're caught up." : "Nothing in this list." })]);
   const detail = el("div", { class: "detail" });
@@ -79,6 +84,7 @@ function paint(root, data, ctx) {
   if (selected) {
     detail.append(renderDetail(selected, {
       ...ctx,
+      jobs: data.jobs,
       finishApproved(jobId) {
         const row = data.jobs.find((item) => item.id === jobId);
         if (row) row.status = "approved";
@@ -87,6 +93,30 @@ function paint(root, data, ctx) {
         showToast("Approved, it's on the map", "ok");
         paint(root, data, { ...ctx, selectedId: null });
         const next = ctx.hashFor();
+        if (location.hash !== next) location.hash = next;
+      },
+      finishMerged(primaryId, childId) {
+        const primary = data.jobs.find((item) => item.id === primaryId);
+        const child = data.jobs.find((item) => item.id === childId);
+        if (primary && child) {
+          primary.job_photos = [...(primary.job_photos || []), ...(child.job_photos || [])];
+          primary.job_videos = [...(primary.job_videos || []), ...(child.job_videos || [])];
+          primary.job_contributors = [
+            ...(primary.job_contributors || []),
+            { display_name: child.poster?.display_name || "Crew" },
+          ];
+          if (primary.status === "approved") primary.new_photos = true;
+          child.job_photos = [];
+          child.job_videos = [];
+          child.status = "merged";
+          child.merged_into = primaryId;
+          const lead = (primary.poster?.display_name || "the lead").split(" ")[0];
+          child.merge_note = `added to ${lead}'s job`;
+        }
+        sessionStorage.setItem("heartland-flash", "Combined. The photos are on the main job.");
+        showToast("Combined. The photos are on the main job.", "ok");
+        paint(root, data, { ...ctx, selectedId: primaryId });
+        const next = ctx.hashFor(primaryId);
         if (location.hash !== next) location.hash = next;
       },
       finishDeleted(jobId) {
@@ -128,6 +158,16 @@ function paint(root, data, ctx) {
 }
 
 function renderDetail(job, ctx, status, onBack) {
+  if (job.status === "merged") {
+    const note = job.merge_note
+      ? `${job.merge_note.charAt(0).toUpperCase()}${job.merge_note.slice(1)}`
+      : "This post was combined with another job";
+    return el("div", { class: "card stack" }, [
+      el("button", { type: "button", class: "btn ghost small back", text: "Back to the list", onclick: onBack }),
+      el("h2", { text: job.title }),
+      el("p", { class: "ok", dataset: { testid: "merge-note" }, text: note.endsWith(".") ? note : `${note}.` }),
+    ]);
+  }
   const photos = (job.job_photos || []).slice().sort((a, b) => a.sort_order - b.sort_order);
   let order = photos.slice();
   const place = placeFields({ town: job.town, state: job.state });
@@ -205,15 +245,31 @@ function renderDetail(job, ctx, status, onBack) {
       const src = photo.public_url || photo.previewUrl;
       if (src) img.src = src;
       else if (photo.storage_path) signedPhotoUrl(photo.storage_path).then((url) => { img.src = url; }).catch(() => {});
-      fig.append(img, el("button", {
-        type: "button",
-        class: "remove",
-        text: index === 0 ? "Main" : "Make main",
-        onclick: () => {
-          order = [photo, ...order.filter((item) => item !== photo)];
-          drawPhotos();
-        },
-      }));
+      fig.append(img, el("div", { class: "row" }, [
+        el("button", {
+          type: "button",
+          class: "remove",
+          text: index === 0 ? "Main" : "Make main",
+          onclick: () => {
+            order = [photo, ...order.filter((item) => item.id !== photo.id)];
+            drawPhotos();
+          },
+        }),
+        el("button", {
+          type: "button",
+          class: "remove",
+          dataset: { testid: "remove-photo" },
+          text: "Remove",
+          onclick: () => run(async () => {
+            if (!confirm("Remove this photo from the job?")) return;
+            if (ctx.actions.removePhoto) await ctx.actions.removePhoto(photo);
+            order = order.filter((item) => item.id !== photo.id);
+            job.job_photos = order.slice();
+            drawPhotos();
+            showActionStatus("Photo removed.");
+          }),
+        }),
+      ]));
       return fig;
     }));
   }
@@ -354,9 +410,41 @@ function renderDetail(job, ctx, status, onBack) {
       }) }),
     );
   }
+  if (job.status === "approved" && job.new_photos) {
+    buttons.append(el("button", {
+      type: "button",
+      class: "btn primary",
+      dataset: { testid: "publish-new" },
+      text: "Publish new photos",
+      onclick: (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        button.textContent = "Publishing…";
+        showToast("Publishing…", "busy");
+        run(async () => {
+          try {
+            const form = readForm();
+            validate(form);
+            await ctx.actions.publishNew(job, form, order, (text) => {
+              showActionStatus(text);
+              showToast(text, "busy");
+            });
+            job.new_photos = false;
+            showToast("New photos are on the map.", "ok");
+            showActionStatus("New photos are on the map. The website pin stayed where it was.");
+            button.remove();
+          } catch (err) {
+            button.disabled = false;
+            button.textContent = "Publish new photos";
+            throw err;
+          }
+        });
+      },
+    }));
+  }
   if (job.status === "approved") {
     buttons.append(
-      el("button", { type: "button", class: "btn primary", text: "Save changes", onclick: () => run(async () => {
+      el("button", { type: "button", class: "btn", text: "Save changes", onclick: () => run(async () => {
         const form = readForm();
         validate(form);
         await ctx.actions.update(job, form, order);
@@ -389,6 +477,9 @@ function renderDetail(job, ctx, status, onBack) {
       el("span", { class: `chip ${job.status}`, text: labelFor(job.status) }),
     ]),
     job.poster ? el("p", { class: "muted", text: `Posted by ${job.poster.display_name}` }) : null,
+    contributorLine(job),
+    job.new_photos ? el("p", { class: "warning", dataset: { testid: "new-photos" }, text: "New photos added. Publish them to put them on the website." }) : null,
+    duplicateBlock(job, ctx),
     job.rejection_reason ? el("p", { class: "warning", text: job.rejection_reason }) : null,
     error,
     photoRow,
@@ -476,15 +567,72 @@ function renderReviewVideos(job, ctx) {
   return wrap;
 }
 
+function contributorLine(job) {
+  const names = (job.job_contributors || []).map((person) => person.display_name).filter(Boolean);
+  if (!names.length) return null;
+  return el("p", { dataset: { testid: "contributors" }, text: `Also on this job: ${names.join(", ")}.` });
+}
+
+function duplicateBlock(job, ctx) {
+  const dupes = possibleDuplicates(job, ctx.jobs || []);
+  if (!dupes.length) return null;
+  const wrap = el("div", { class: "stack", dataset: { testid: "duplicates" } });
+  for (const other of dupes) {
+    const row = (ctx.jobs || []).find((item) => item.id === other.id);
+    const who = row?.poster?.display_name ? ` by ${row.poster.display_name}` : "";
+    wrap.append(
+      el("p", { class: "warning", text: `Possible duplicate of ${other.title}${who}.` }),
+      el("div", { class: "row wrap" }, [
+        el("button", {
+          type: "button",
+          class: "btn",
+          dataset: { testid: "merge-into" },
+          text: "Merge into this job",
+          onclick: () => runMerge(ctx, job.id, other.id),
+        }),
+        el("button", {
+          type: "button",
+          class: "btn",
+          dataset: { testid: "merge-other" },
+          text: "Use the other as the main job",
+          onclick: () => runMerge(ctx, other.id, job.id),
+        }),
+      ]),
+    );
+  }
+  return wrap;
+}
+
+function runMerge(ctx, primaryId, childId) {
+  const primary = (ctx.jobs || []).find((item) => item.id === primaryId);
+  const child = (ctx.jobs || []).find((item) => item.id === childId);
+  const label = child?.title || "the other job";
+  if (!confirm(`Combine “${label}” into “${primary?.title || "this job"}”? The photos move onto the main job.`)) return;
+  const work = async () => {
+    if (ctx.actions.merge) await ctx.actions.merge(primaryId, childId);
+    if (typeof ctx.finishMerged === "function") ctx.finishMerged(primaryId, childId);
+  };
+  work().catch((err) => {
+    showToast(explainDatabaseError(err?.message || "Could not combine those jobs."), "error");
+  });
+}
+
 function locationOf(job) {
   const loc = job.job_locations;
   if (Array.isArray(loc)) return loc[0] || null;
   return loc || null;
 }
 
+function matchesFilter(job, current) {
+  if (job.status === "merged") return false;
+  if (current === "pending") return job.status === "pending" || job.new_photos === true;
+  return job.status === current;
+}
+
 function labelFor(status) {
   if (status === "approved") return "Approved";
   if (status === "rejected") return "Rejected";
+  if (status === "merged") return "Combined";
   return "Pending";
 }
 

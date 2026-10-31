@@ -14,17 +14,22 @@ export function renderPosts({ load, remove, onCopy }) {
 }
 
 function paint(root, jobs, actions) {
+  const flash = sessionStorage.getItem("heartland-flash");
+  sessionStorage.removeItem("heartland-flash");
+  const banner = flash ? el("p", { class: "ok", text: flash }) : null;
   if (!jobs.length) {
-    root.replaceChildren(
+    root.replaceChildren(...[
       el("h1", { tabindex: "-1", text: "My posts" }),
+      banner,
       el("p", { class: "empty", text: "No jobs yet. Tap New job after you finish a house." }),
-    );
+    ].filter(Boolean));
     return;
   }
-  root.replaceChildren(
+  root.replaceChildren(...[
     el("h1", { tabindex: "-1", text: "My posts" }),
+    banner,
     ...jobs.map((job) => jobCard(job, actions, root)),
-  );
+  ].filter(Boolean));
 }
 
 function jobCard(job, actions, root) {
@@ -37,6 +42,14 @@ function jobCard(job, actions, root) {
     el("p", { class: "muted", text: `${job.service} · ${job.town}, ${job.state} · ${formatWhen(job.job_date)}` }),
     el("p", { text: job.summary }),
   ]);
+  if (job.status === "merged" && job.merge_note) {
+    const note = `${job.merge_note.charAt(0).toUpperCase()}${job.merge_note.slice(1)}`;
+    card.append(el("p", { class: "ok", dataset: { testid: "merge-note" }, text: note.endsWith(".") ? note : `${note}.` }));
+  }
+  const contributors = (job.job_contributors || []).map((person) => person.display_name).filter(Boolean);
+  if (contributors.length && job.status !== "merged") {
+    card.append(el("p", { class: "hint", text: `Includes photos from ${contributors.join(", ")}.` }));
+  }
   if (job.status === "rejected" && job.rejection_reason) {
     card.append(el("p", { class: "warning", text: `Needs a change: ${job.rejection_reason}` }));
   }
@@ -98,5 +111,6 @@ function jobCard(job, actions, root) {
 function labelFor(status) {
   if (status === "approved") return "Approved";
   if (status === "rejected") return "Rejected";
+  if (status === "merged") return "Combined";
   return "Pending";
 }

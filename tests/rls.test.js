@@ -40,6 +40,7 @@ test("row level security keeps exact locations off the public feed", { timeout: 
     await db.exec(read("../supabase/migrations/20261031140000_move_pin.sql"));
     await db.exec(read("../supabase/migrations/20261031150000_roles.sql"));
     await db.exec(read("../supabase/migrations/20261031160000_delete_job.sql"));
+    await db.exec(read("../supabase/migrations/20261031170000_job_merge.sql"));
 
     const openFunctions = await db.query(`
       select proname
@@ -432,6 +433,7 @@ test("row level security keeps exact locations off the public feed", { timeout: 
     await db.exec(read("../supabase/migrations/20261031140000_move_pin.sql"));
     await db.exec(read("../supabase/migrations/20261031150000_roles.sql"));
     await db.exec(read("../supabase/migrations/20261031160000_delete_job.sql"));
+    await db.exec(read("../supabase/migrations/20261031170000_job_merge.sql"));
     const stillThere = await asUser(db, "anon", null, (tx) => tx.query(
       `select count(*)::int as n from storage.objects where bucket_id = 'job-photos'`,
     ));

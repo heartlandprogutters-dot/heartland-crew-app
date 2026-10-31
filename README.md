@@ -37,6 +37,7 @@ Merge the pull request into the `main` branch. The rest of these steps happen on
 6. Open one more query. Copy all of `supabase/migrations/20261031140000_move_pin.sql` and run it. This lets Kent or Haley drag the exact house pin. The website pin does not move.
 7. Open one more query. Copy all of `supabase/migrations/20261031150000_roles.sql` and run it. This renames Crew to Trainee and adds Lead Man. Existing crew logins become trainees.
 8. Open one more query. Copy all of `supabase/migrations/20261031160000_delete_job.sql` and run it. This lets Kent or Haley delete a job from Review, including one already on the website map.
+9. Open one more query. Copy all of `supabase/migrations/20261031170000_job_merge.sql` and run it. This combines a trainee's post with the matching lead man job.
 
 That creates the job tables, the privacy rules, the public jobs feed, and two photo folders:
 

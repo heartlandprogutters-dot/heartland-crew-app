@@ -1,7 +1,9 @@
 // Field roles post jobs and see only their own. They match today.
-// A later clock in/out (or a lead seeing a trainee's jobs) should branch
-// in isFieldRole / canReview, and in the database helpers is_field_role()
-// and can_read_job(), not in every screen.
+// A merged trainee post keeps that rule: the note "added to Lee's job"
+// is stored on the trainee's own row. A later clock in/out (or a lead
+// seeing a trainee's jobs) should branch in isFieldRole / canReview,
+// and in the database helpers is_field_role() and can_read_job(),
+// not in every screen.
 
 const FIELD_ROLES = ["trainee", "lead_man"];
 

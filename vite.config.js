@@ -31,7 +31,7 @@ export default defineConfig({
       workbox: {
         // Bump this when home-screen icons or cached app files must replace
         // an older copy already saved on a phone.
-        cacheId: 'heartland-crew-v5',
+        cacheId: 'heartland-crew-v6',
         cleanupOutdatedCaches: true,
         navigateFallback: 'index.html',
         globPatterns: ['**/*.{js,css,html,png,svg,webp,ico,webmanifest,txt}'],

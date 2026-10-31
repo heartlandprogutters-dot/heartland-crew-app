@@ -64,7 +64,7 @@ function parseRoute() {
 
 function homeHash() {
   if (!profile) return "#/";
-  return profile.role === "crew" ? "#/new" : "#/review";
+  return canReview(profile.role) ? "#/review" : "#/new";
 }
 
 function draw() {

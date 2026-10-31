@@ -5,7 +5,7 @@ import { todayISO } from "../lib/format.js";
 import { renderShell } from "../ui/shell.js";
 import { renderNewJob } from "./newjob.js";
 import { renderPosts } from "./posts.js";
-import { canManageCrew, canReview } from "../lib/roles.js";
+import { ROLE_OPTIONS, canManageCrew, canReview } from "../lib/roles.js";
 import { renderReview } from "./review.js";
 import { renderCrew } from "./crew.js";
 
@@ -20,11 +20,12 @@ const samplePhoto = {
 };
 
 const state = {
-  role: "crew",
+  role: "trainee",
   people: [
     { id: "kent", display_name: "Kent", email: "kent@example.com", role: "admin", disabled: false },
     { id: "haley", display_name: "Haley", email: "haley@example.com", role: "approver", disabled: false },
-    { id: "sam", display_name: "Sam", email: "sam@example.com", role: "crew", disabled: false },
+    { id: "sam", display_name: "Sam", email: "sam@example.com", role: "trainee", disabled: false },
+    { id: "lee", display_name: "Lee", email: "lee@example.com", role: "lead_man", disabled: false },
   ],
   jobs: [
     {
@@ -323,13 +324,13 @@ export function renderPractice(route, rerender) {
 
   const banner = el("div", { class: "sample-banner" }, [
     el("p", { text: "Sample only. Nothing is saved." }),
-    el("div", { class: "row" }, ["crew", "approver", "admin"].map((role) => el("button", {
+    el("div", { class: "row" }, ROLE_OPTIONS.map((item) => el("button", {
       type: "button",
-      class: state.role === role ? "btn small primary" : "btn small",
-      dataset: { testid: `role-${role}` },
-      text: role[0].toUpperCase() + role.slice(1),
+      class: state.role === item.value ? "btn small primary" : "btn small",
+      dataset: { testid: `role-${item.value}` },
+      text: item.label,
       onclick: () => {
-        state.role = role;
+        state.role = item.value;
         rerender();
       },
     }))),

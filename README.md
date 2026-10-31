@@ -35,6 +35,7 @@ Merge the pull request into the `main` branch. The rest of these steps happen on
 4. Open a new query. Copy all of `supabase/migrations/20261031120100_storage.sql` and run it. If an earlier copy stopped with "must be owner of table objects", that attempt was undone. Run this updated file. It only adds the photo folders and their rules.
 5. Open one more query. Copy all of `supabase/migrations/20261031130000_videos.sql` and run it. This adds short job videos.
 6. Open one more query. Copy all of `supabase/migrations/20261031140000_move_pin.sql` and run it. This lets Kent or Haley drag the exact house pin. The website pin does not move.
+7. Open one more query. Copy all of `supabase/migrations/20261031150000_roles.sql` and run it. This renames Crew to Trainee and adds Lead Man. Existing crew logins become trainees.
 
 That creates the job tables, the privacy rules, the public jobs feed, and two photo folders:
 
@@ -120,7 +121,7 @@ Supabase pauses a free project after about a week with no traffic. A daily GitHu
 2. Sign in as Kent.
 3. Open **Crew**.
 4. Add Haley with role **Approver**.
-5. Add each crew member with role **Crew**.
+5. Add each field person with role **Trainee** or **Lead Man**. Those two can post and see only their own jobs.
 6. The temporary password is shown once. Tell them in person or by a phone call, then have them open **Password** and change it.
 
 If **Add person** shows an error, use the fallback:
@@ -128,7 +129,7 @@ If **Add person** shows an error, use the fallback:
 1. In Supabase, **Authentication** → **Users** → **Add user**, with **Auto Confirm User** on.
 2. Back in the app, open **Crew**, find them, and set the role.
 
-An approver can see and approve every job, including the exact map pin. An admin can do that and can also add or turn off people. Crew members only see their own posts.
+An approver can see and approve every job, including the exact map pin. An admin can do that and can also add or turn off people. Trainees and lead men only see their own posts.
 
 ## 12. Install it on an iPhone
 

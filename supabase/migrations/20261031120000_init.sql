@@ -35,11 +35,11 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   email text not null,
   display_name text not null,
-  role text not null default 'crew',
+  role text not null default 'trainee',
   disabled boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint profiles_role_check check (role in ('crew', 'approver', 'admin')),
+  constraint profiles_role_check check (role in ('trainee', 'lead_man', 'approver', 'admin')),
   constraint profiles_email_unique unique (email)
 );
 
@@ -206,6 +206,18 @@ begin
 end;
 $fn$;
 
+-- Trainee and Lead Man are the field roles. They match today.
+-- A later feature (clock in/out, or a lead seeing a trainee's jobs) should
+-- branch here or in can_read_job(), not in every policy.
+create or replace function public.role_is_field(p_role text)
+returns boolean
+language sql
+immutable
+set search_path = ''
+as $fn$
+  select p_role in ('trainee', 'lead_man');
+$fn$;
+
 create or replace function public.assert_role(p_roles text[], p_message text)
 returns public.profiles
 language plpgsql
@@ -223,10 +235,13 @@ begin
   if v.disabled then
     raise exception 'This account is turned off. Ask Kent.';
   end if;
-  if v.role <> all (p_roles) then
-    raise exception '%', p_message;
+  -- Older functions still pass 'crew' for "anyone who posts." That slot
+  -- means every field role.
+  if v.role = any (p_roles)
+     or (public.role_is_field(v.role) and 'crew' = any (p_roles)) then
+    return v;
   end if;
-  return v;
+  raise exception '%', p_message;
 end;
 $fn$;
 
@@ -259,6 +274,46 @@ as $fn$
       and disabled = false
       and role in ('approver', 'admin')
   );
+$fn$;
+
+create or replace function public.is_field_role()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $fn$
+  select exists (
+    select 1
+    from public.profiles
+    where id = auth.uid()
+      and disabled = false
+      and public.role_is_field(role)
+  );
+$fn$;
+
+-- Posting is the same for every field role and for approvers today.
+create or replace function public.can_post()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $fn$
+  select public.is_field_role() or public.is_approver();
+$fn$;
+
+-- Field roles read their own jobs. Approvers read every job.
+-- Give a lead man a wider view later by editing only this function.
+create or replace function public.can_read_job(p_created_by uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $fn$
+  select public.is_approver()
+    or (public.is_field_role() and p_created_by is not distinct from auth.uid());
 $fn$;
 
 create or replace function public.clean_review(
@@ -536,8 +591,8 @@ begin
   if v_name is null or btrim(v_name) = '' then
     v_name := 'Crew';
   end if;
-  if v_staff <> '1' or v_role not in ('crew', 'approver', 'admin') then
-    v_role := 'crew';
+  if v_staff <> '1' or not (public.role_is_field(v_role) or v_role in ('approver', 'admin')) then
+    v_role := 'trainee';
     v_staff := '';
   end if;
   insert into public.profiles (id, email, display_name, role, disabled)
@@ -620,8 +675,7 @@ create policy jobs_select_own_or_staff
   for select
   to authenticated
   using (
-    public.is_active()
-    and (created_by = auth.uid() or public.is_approver())
+    public.can_read_job(created_by)
   );
 
 drop policy if exists job_photos_select_own_or_staff on public.job_photos;
@@ -630,12 +684,11 @@ create policy job_photos_select_own_or_staff
   for select
   to authenticated
   using (
-    public.is_active()
-    and exists (
+    exists (
       select 1
       from public.jobs j
       where j.id = job_id
-        and (j.created_by = auth.uid() or public.is_approver())
+        and public.can_read_job(j.created_by)
     )
   );
 
@@ -668,7 +721,7 @@ declare
   v_address text;
 begin
   v_profile := public.assert_role(
-    array['crew', 'approver', 'admin'],
+    array['trainee', 'lead_man', 'approver', 'admin'],
     'You do not have permission to post a job.'
   );
   if p_job_date is null
@@ -720,7 +773,7 @@ declare
   v_id uuid;
 begin
   v_profile := public.assert_role(
-    array['crew', 'approver', 'admin'],
+    array['trainee', 'lead_man', 'approver', 'admin'],
     'You do not have permission to add a photo.'
   );
   select status, created_by into v_status, v_owner
@@ -760,7 +813,7 @@ declare
   v_owner uuid;
 begin
   v_profile := public.assert_role(
-    array['crew', 'approver', 'admin'],
+    array['trainee', 'lead_man', 'approver', 'admin'],
     'You do not have permission to delete that job.'
   );
   select status, created_by into v_status, v_owner
@@ -1269,8 +1322,8 @@ declare
   v_name text;
 begin
   perform public.assert_role(array['admin'], 'Only an admin can add people.');
-  if p_role not in ('crew', 'approver', 'admin') then
-    raise exception 'Role must be crew, approver, or admin.';
+  if not (public.role_is_field(p_role) or p_role in ('approver', 'admin')) then
+    raise exception 'Role must be trainee, lead man, approver, or admin.';
   end if;
   if char_length(coalesce(p_password, '')) < 8 or char_length(p_password) > 72 then
     raise exception 'Use a temporary password between 8 and 72 characters.';
@@ -1402,8 +1455,8 @@ declare
   v_admins integer;
 begin
   v_caller := public.assert_role(array['admin'], 'Only an admin can change roles.');
-  if p_role not in ('crew', 'approver', 'admin') then
-    raise exception 'Role must be crew, approver, or admin.';
+  if not (public.role_is_field(p_role) or p_role in ('approver', 'admin')) then
+    raise exception 'Role must be trainee, lead man, approver, or admin.';
   end if;
   select role into v_current from public.profiles where id = p_user_id;
   if v_current is null then
@@ -1556,7 +1609,7 @@ declare
     'create_job', 'attach_photo', 'delete_own_job',
     'approve_job', 'reject_job', 'withdraw_job', 'republish_job', 'update_approved_job', 'move_exact_pin',
     'import_jobs', 'admin_create_user', 'admin_set_role', 'admin_set_disabled',
-    'public_jobs_feed', 'is_active', 'is_approver'
+    'public_jobs_feed', 'is_active', 'is_approver', 'is_field_role', 'role_is_field', 'can_post', 'can_read_job'
   ];
 begin
   for r in

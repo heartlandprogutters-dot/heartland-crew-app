@@ -38,6 +38,7 @@ test("row level security keeps exact locations off the public feed", { timeout: 
     await db.exec(read("../supabase/migrations/20261031120100_storage.sql"));
     await db.exec(read("../supabase/migrations/20261031130000_videos.sql"));
     await db.exec(read("../supabase/migrations/20261031140000_move_pin.sql"));
+    await db.exec(read("../supabase/migrations/20261031150000_roles.sql"));
 
     const openFunctions = await db.query(`
       select proname
@@ -77,8 +78,8 @@ test("row level security keeps exact locations off the public feed", { timeout: 
       await db.query(`insert into auth.users (id, email, raw_user_meta_data) values ($1, $2, '{}'::jsonb)`, [id, email]);
     }
     await db.query(`update public.profiles set role = 'admin', display_name = 'Kent', disabled = false where id = $1`, [kent]);
-    await db.query(`update public.profiles set role = 'crew', display_name = 'Sam', disabled = false where id = $1`, [sam]);
-    await db.query(`update public.profiles set role = 'crew', display_name = 'Pat', disabled = false where id = $1`, [pat]);
+    await db.query(`update public.profiles set role = 'trainee', display_name = 'Sam', disabled = false where id = $1`, [sam]);
+    await db.query(`update public.profiles set role = 'lead_man', display_name = 'Pat', disabled = false where id = $1`, [pat]);
     await db.query(`update public.profiles set role = 'approver', display_name = 'Haley', disabled = false where id = $1`, [haley]);
 
     const today = (await db.query(`select current_date::text as d`)).rows[0].d;
@@ -127,13 +128,13 @@ test("row level security keeps exact locations off the public feed", { timeout: 
     const patAsApprover = await asUser(db, "authenticated", pat, (tx) => tx.query(`select id from public.jobs order by id`));
     assert.equal(patAsApprover.rows.length, 2);
     await asUser(db, "authenticated", kent, (tx) => tx.query(
-      `select public.admin_set_role($1, 'crew')`,
+      `select public.admin_set_role($1, 'lead_man')`,
       [pat],
     ));
     const patBack = await asUser(db, "authenticated", pat, (tx) => tx.query(`select id from public.jobs`));
     assert.deepEqual(patBack.rows.map((row) => row.id), [patJobId]);
     const patRole = await db.query(`select role from public.profiles where id = $1`, [pat]);
-    assert.equal(patRole.rows[0].role, "crew");
+    assert.equal(patRole.rows[0].role, "lead_man");
 
     const samLocation = await asUser(db, "authenticated", sam, (tx) => tx.query(`select job_id from public.job_locations`));
     assert.equal(samLocation.rows.length, 0);
@@ -174,7 +175,7 @@ test("row level security keeps exact locations off the public feed", { timeout: 
       /Direct changes are blocked/,
     );
     const stillCrew = await db.query(`select role from public.profiles where id = $1`, [sam]);
-    assert.equal(stillCrew.rows[0].role, "crew");
+    assert.equal(stillCrew.rows[0].role, "trainee");
     await db.exec(`drop policy profiles_update_test on public.profiles`);
     await db.exec(`revoke update on public.profiles from authenticated`);
 
@@ -323,16 +324,22 @@ test("row level security keeps exact locations off the public feed", { timeout: 
 
     await expectFail(
       () => asUser(db, "authenticated", sam, (tx) => tx.query(
-        `select public.admin_create_user('new@example.com', 'temporary1', 'Alex', 'crew')`,
+        `select public.admin_create_user('new@example.com', 'temporary1', 'Alex', 'trainee')`,
       )),
       /Only an admin/,
     );
     const added = await asUser(db, "authenticated", kent, (tx) => tx.query(
-      `select public.admin_create_user('alex@example.com', 'temporary1', 'Alex', 'crew') as id`,
+      `select public.admin_create_user('alex@example.com', 'temporary1', 'Alex', 'trainee') as id`,
     ));
     const alex = added.rows[0].id;
     const alexProfile = await db.query(`select role, disabled from public.profiles where id = $1`, [alex]);
-    assert.equal(alexProfile.rows[0].role, "crew");
+    assert.equal(alexProfile.rows[0].role, "trainee");
+    await expectFail(
+      () => asUser(db, "authenticated", kent, (tx) => tx.query(
+        `select public.admin_create_user('old@example.com', 'temporary1', 'Old', 'crew')`,
+      )),
+      /Role must be/,
+    );
     assert.equal(alexProfile.rows[0].disabled, false);
     await asUser(db, "authenticated", kent, (tx) => tx.query(`select public.admin_set_disabled($1, true)`, [alex]));
     await expectFail(
@@ -408,6 +415,7 @@ test("row level security keeps exact locations off the public feed", { timeout: 
     await db.exec(read("../supabase/migrations/20261031120100_storage.sql"));
     await db.exec(read("../supabase/migrations/20261031130000_videos.sql"));
     await db.exec(read("../supabase/migrations/20261031140000_move_pin.sql"));
+    await db.exec(read("../supabase/migrations/20261031150000_roles.sql"));
     const stillThere = await asUser(db, "anon", null, (tx) => tx.query(
       `select count(*)::int as n from storage.objects where bucket_id = 'job-photos'`,
     ));

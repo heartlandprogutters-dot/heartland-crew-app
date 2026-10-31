@@ -1,4 +1,5 @@
 import { el, field } from "../lib/dom.js";
+import { ROLE_OPTIONS, roleLabel } from "../lib/roles.js";
 
 export function renderCrew({ load, profile, actions }) {
   const root = el("section", { class: "stack" });
@@ -18,11 +19,9 @@ function paint(root, people, profile, actions, refresh, flash) {
   const name = el("input", { name: "name", autocomplete: "name", required: "true", maxlength: "60" });
   const email = el("input", { type: "email", name: "email", autocomplete: "off", autocapitalize: "none", required: "true" });
   const password = el("input", { type: "text", name: "password", autocomplete: "new-password", required: "true", minlength: "8" });
-  const role = el("select", { name: "role" }, [
-    el("option", { value: "crew", text: "Crew" }),
-    el("option", { value: "approver", text: "Approver" }),
-    el("option", { value: "admin", text: "Admin" }),
-  ]);
+  const role = el("select", { name: "role" }, ROLE_OPTIONS.map((item) => (
+    el("option", { value: item.value, text: item.label })
+  )));
   const form = el("form", { class: "card stack" }, [
     el("h2", { text: "Add someone" }),
     el("p", { class: "hint", text: "They sign in with this email and temporary password, then change the password." }),
@@ -64,12 +63,10 @@ function paint(root, people, profile, actions, refresh, flash) {
   );
 }
 
-const ROLE_LABELS = { crew: "Crew", approver: "Approver", admin: "Admin" };
-
 function personCard(person, profile, actions, refresh, error) {
-  const role = el("select", { "aria-label": `Role for ${person.display_name}`, dataset: { testid: `role-${person.id}` } }, ["crew", "approver", "admin"].map((value) => {
-    const option = el("option", { value, text: ROLE_LABELS[value] });
-    if (value === person.role) option.selected = true;
+  const role = el("select", { "aria-label": `Role for ${person.display_name}`, dataset: { testid: `role-${person.id}` } }, ROLE_OPTIONS.map((item) => {
+    const option = el("option", { value: item.value, text: item.label });
+    if (item.value === person.role) option.selected = true;
     return option;
   }));
   role.addEventListener("change", async () => {
@@ -77,7 +74,7 @@ function personCard(person, profile, actions, refresh, error) {
     role.disabled = true;
     try {
       await actions.setRole(person.id, next);
-      await refresh(`${person.display_name} is now ${ROLE_LABELS[next] || next}.`);
+      await refresh(`${person.display_name} is now ${roleLabel(next)}.`);
     } catch (err) {
       error.hidden = false;
       error.textContent = err.message;
@@ -92,7 +89,7 @@ function personCard(person, profile, actions, refresh, error) {
       person.disabled ? el("span", { class: "chip rejected", text: "Off" }) : el("span", { class: "chip approved", text: "On" }),
     ]),
     el("div", { class: "row" }, [
-      field("Role", role, "Crew posts only their own jobs. Approvers can review every job."),
+      field("Role", role, "Trainee and Lead Man post only their own jobs. Approvers can review every job."),
       person.id === profile.id ? null : el("button", {
         type: "button",
         class: "btn small",

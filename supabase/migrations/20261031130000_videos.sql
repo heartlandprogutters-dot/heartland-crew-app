@@ -39,7 +39,7 @@ create policy job_videos_select_own_or_staff
       select 1
       from public.jobs j
       where j.id = job_id
-        and (j.created_by = auth.uid() or public.is_approver())
+        and public.can_read_job(j.created_by)
     )
   );
 
@@ -79,7 +79,7 @@ declare
   v_id uuid;
 begin
   v_profile := public.assert_role(
-    array['crew', 'approver', 'admin'],
+    array['trainee', 'lead_man', 'approver', 'admin'],
     'You do not have permission to add a video.'
   );
   select status, created_by into v_status, v_owner

@@ -1,15 +1,16 @@
 import { el } from "../lib/dom.js";
+import { canManageCrew, canReview } from "../lib/roles.js";
 import { icon } from "./icons.js";
 
 const ITEMS = [
   { id: "new", label: "New job", icon: "plus" },
   { id: "posts", label: "My posts", icon: "list" },
-  { id: "review", label: "Review", icon: "check", roles: ["approver", "admin"] },
-  { id: "crew", label: "Crew", icon: "people", roles: ["admin"] },
+  { id: "review", label: "Review", icon: "check", allow: canReview },
+  { id: "crew", label: "Crew", icon: "people", allow: canManageCrew },
 ];
 
 function navItems(profile) {
-  return ITEMS.filter((item) => !item.roles || item.roles.includes(profile.role));
+  return ITEMS.filter((item) => !item.allow || item.allow(profile?.role));
 }
 
 function navLink(item, active, hashFor) {

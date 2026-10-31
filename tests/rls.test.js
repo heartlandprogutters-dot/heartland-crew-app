@@ -96,6 +96,45 @@ test("row level security keeps exact locations off the public feed", { timeout: 
     const patSees = await asUser(db, "authenticated", pat, (tx) => tx.query(`select id from public.jobs`));
     assert.equal(patSees.rows.length, 0);
 
+    const patJob = await asUser(db, "authenticated", pat, (tx) => tx.query(
+      `select public.create_job($1,$2,$3,$4,$5::date,$6,$7,$8) as id`,
+      ["Gutter Guards", "Mayfield", "KY", "Guards on a ranch house in town.", today, 36.741, -88.636, "10 Broadway, Mayfield, KY"],
+    ));
+    const patJobId = patJob.rows[0].id;
+    const samAfterPat = await asUser(db, "authenticated", sam, (tx) => tx.query(`select id, status from public.jobs`));
+    assert.deepEqual(samAfterPat.rows.map((row) => row.id), [jobId]);
+    assert.equal(samAfterPat.rows.every((row) => row.status === "pending"), true);
+    const patOwn = await asUser(db, "authenticated", pat, (tx) => tx.query(`select id from public.jobs`));
+    assert.deepEqual(patOwn.rows.map((row) => row.id), [patJobId]);
+    await expectFail(
+      () => asUser(db, "authenticated", sam, (tx) => tx.query(
+        `select public.reject_job($1, $2)`,
+        [patJobId, "Not your job"],
+      )),
+      /Only Kent or Haley/,
+    );
+    await expectFail(
+      () => asUser(db, "authenticated", sam, (tx) => tx.query(
+        `select public.admin_set_role($1, 'approver')`,
+        [pat],
+      )),
+      /Only an admin can change roles/,
+    );
+    await asUser(db, "authenticated", kent, (tx) => tx.query(
+      `select public.admin_set_role($1, 'approver')`,
+      [pat],
+    ));
+    const patAsApprover = await asUser(db, "authenticated", pat, (tx) => tx.query(`select id from public.jobs order by id`));
+    assert.equal(patAsApprover.rows.length, 2);
+    await asUser(db, "authenticated", kent, (tx) => tx.query(
+      `select public.admin_set_role($1, 'crew')`,
+      [pat],
+    ));
+    const patBack = await asUser(db, "authenticated", pat, (tx) => tx.query(`select id from public.jobs`));
+    assert.deepEqual(patBack.rows.map((row) => row.id), [patJobId]);
+    const patRole = await db.query(`select role from public.profiles where id = $1`, [pat]);
+    assert.equal(patRole.rows[0].role, "crew");
+
     const samLocation = await asUser(db, "authenticated", sam, (tx) => tx.query(`select job_id from public.job_locations`));
     assert.equal(samLocation.rows.length, 0);
     const patPeople = await asUser(db, "authenticated", pat, (tx) => tx.query(`select id from public.profiles`));

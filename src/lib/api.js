@@ -109,9 +109,13 @@ export async function submitNewJob({ fields, photos, videos = [], location, onPr
 }
 
 export async function listMyJobs() {
-  const { data, error } = await getSupabase()
+  const supabase = getSupabase();
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError || !userData.user) throw new Error("Sign in first.");
+  const { data, error } = await supabase
     .from("jobs")
     .select("id, status, service, town, state, title, summary, job_date, rejection_reason, created_at, job_photos(id, storage_path, public_url, sort_order), job_videos(id, storage_path, public_url, sort_order)")
+    .eq("created_by", userData.user.id)
     .order("created_at", { ascending: false });
   if (error) throw new Error(friendlyError(error));
   return data || [];

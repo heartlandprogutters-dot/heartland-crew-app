@@ -27,6 +27,7 @@ import {
   setPersonDisabled,
 } from "./lib/api.js";
 import { getSupabase } from "./lib/supabase.js";
+import { canManageCrew, canReview } from "./lib/roles.js";
 import { renderShell } from "./ui/shell.js";
 import { renderPassword, renderSetup, renderSignIn } from "./screens/signin.js";
 import { renderNewJob } from "./screens/newjob.js";
@@ -133,8 +134,8 @@ function draw() {
     return;
   }
   const allowed = route.name === "new" || route.name === "posts" || route.name === "password"
-    || (route.name === "review" && profile.role !== "crew")
-    || (route.name === "crew" && profile.role === "admin");
+    || (route.name === "review" && canReview(profile.role))
+    || (route.name === "crew" && canManageCrew(profile.role));
   if (!allowed) {
     location.replace(homeHash());
     return;

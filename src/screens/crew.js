@@ -64,20 +64,25 @@ function paint(root, people, profile, actions, refresh, flash) {
   );
 }
 
+const ROLE_LABELS = { crew: "Crew", approver: "Approver", admin: "Admin" };
+
 function personCard(person, profile, actions, refresh, error) {
-  const role = el("select", {}, ["crew", "approver", "admin"].map((value) => {
-    const option = el("option", { value, text: value[0].toUpperCase() + value.slice(1) });
+  const role = el("select", { "aria-label": `Role for ${person.display_name}`, dataset: { testid: `role-${person.id}` } }, ["crew", "approver", "admin"].map((value) => {
+    const option = el("option", { value, text: ROLE_LABELS[value] });
     if (value === person.role) option.selected = true;
     return option;
   }));
   role.addEventListener("change", async () => {
+    const next = role.value;
+    role.disabled = true;
     try {
-      await actions.setRole(person.id, role.value);
-      await refresh();
+      await actions.setRole(person.id, next);
+      await refresh(`${person.display_name} is now ${ROLE_LABELS[next] || next}.`);
     } catch (err) {
       error.hidden = false;
       error.textContent = err.message;
       role.value = person.role;
+      role.disabled = false;
     }
   });
   const card = el("article", { class: "card spread" }, [
@@ -87,7 +92,7 @@ function personCard(person, profile, actions, refresh, error) {
       person.disabled ? el("span", { class: "chip rejected", text: "Off" }) : el("span", { class: "chip approved", text: "On" }),
     ]),
     el("div", { class: "row" }, [
-      role,
+      field("Role", role, "Crew posts only their own jobs. Approvers can review every job."),
       person.id === profile.id ? null : el("button", {
         type: "button",
         class: "btn small",

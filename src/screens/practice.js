@@ -5,6 +5,7 @@ import { todayISO } from "../lib/format.js";
 import { renderShell } from "../ui/shell.js";
 import { renderNewJob } from "./newjob.js";
 import { renderPosts } from "./posts.js";
+import { canManageCrew, canReview } from "../lib/roles.js";
 import { renderReview } from "./review.js";
 import { renderCrew } from "./crew.js";
 
@@ -84,8 +85,8 @@ function poster(job) {
 
 export function renderPractice(route, rerender) {
   const me = profile();
-  if (route.name === "review" && me.role === "crew") route = { ...route, name: "new", id: null };
-  if (route.name === "crew" && me.role !== "admin") route = { ...route, name: "new", id: null };
+  if (route.name === "review" && !canReview(me.role)) route = { ...route, name: "new", id: null };
+  if (route.name === "crew" && !canManageCrew(me.role)) route = { ...route, name: "new", id: null };
   const hashFor = (id) => (id ? `#/preview/${id}` : `#/preview/${route.name || "new"}`);
   const reviewHash = (id) => (id ? `#/preview/review/${id}` : "#/preview/review");
   let content;

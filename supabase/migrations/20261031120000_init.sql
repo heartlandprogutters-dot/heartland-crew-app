@@ -1610,7 +1610,9 @@ declare
     'approve_job', 'reject_job', 'withdraw_job', 'republish_job', 'update_approved_job', 'move_exact_pin',
     'import_jobs', 'admin_create_user', 'admin_set_role', 'admin_set_disabled',
     'public_jobs_feed', 'is_active', 'is_approver', 'is_field_role', 'role_is_field', 'can_post', 'can_read_job',
-    'settle_job', 'merge_jobs', 'publish_new_photos', 'remove_review_photo'
+    'settle_job', 'merge_jobs', 'publish_new_photos', 'remove_review_photo',
+    'save_photo_extra', 'save_video_extra', 'publish_photo_original', 'publish_video_original',
+    'set_privacy_checked', 'set_social_skip', 'set_social_status', 'public_social_feed'
   ];
 begin
   for r in
@@ -1620,7 +1622,7 @@ begin
     where n.nspname = 'public'
   loop
     execute format('revoke all on function %s from public, anon, authenticated', r.sig);
-    if r.proname = 'public_jobs_feed' then
+    if r.proname in ('public_jobs_feed', 'public_social_feed', 'set_social_status') then
       execute format('grant execute on function %s to anon, authenticated', r.sig);
     elsif r.proname = any (allow_auth) then
       execute format('grant execute on function %s to authenticated', r.sig);

@@ -15,6 +15,7 @@ import {
   mergeJobs,
   publishNewPhotos,
   removeReviewPhoto,
+  setSocialSkip,
   updateApprovedJob,
   rejectJob,
   withdrawJob,
@@ -188,6 +189,7 @@ function draw() {
         merge: (primaryId, childId) => mergeJobs(primaryId, childId),
         removePhoto: (photo) => removeReviewPhoto(photo),
         publishNew: (job, form, photos, onProgress) => publishNewPhotos(job, form, photos, onProgress),
+        setSocialSkip: (jobId, skip) => setSocialSkip(jobId, skip),
       },
     });
   } else if (route.name === "crew") {

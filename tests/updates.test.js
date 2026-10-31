@@ -42,7 +42,7 @@ test("the service worker takes control and checks for a new shell", () => {
   const config = readFileSync(new URL("../vite.config.js", import.meta.url), "utf8");
   assert.match(config, /skipWaiting:\s*true/);
   assert.match(config, /clientsClaim:\s*true/);
-  assert.match(config, /heartland-crew-v11/);
+  assert.match(config, /heartland-crew-v12/);
   assert.match(config, /globIgnores: \['\*\*\/index\.html', '\*\*\/version\.json'\]/);
   assert.match(config, /handler: 'NetworkFirst'/);
   assert.equal(config.includes("tile.openstreetmap.org"), false);

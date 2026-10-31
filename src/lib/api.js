@@ -1,4 +1,5 @@
-import { photoFileName, videoFileName } from "./names.js";
+import { originalPhotoFileName, originalVideoFileName, photoFileName, videoFileName } from "./names.js";
+import { MAX_ORIGINAL_BYTES } from "./video.js";
 import { getSupabase } from "./supabase.js";
 
 export function friendlyError(error) {
@@ -36,6 +37,9 @@ export function explainDatabaseError(message) {
   if (missing && /settle_job|merge_jobs|publish_new_photos|remove_review_photo|job_contributors/i.test(msg)) {
     return "Combining jobs needs a database update. In the Supabase SQL Editor, run supabase/migrations/20261031170000_job_merge.sql";
   }
+  if (missing && /public_social_feed|set_social_status|set_social_skip|set_privacy_checked|save_photo_extra|save_video_extra|publish_photo_original|publish_video_original/i.test(msg)) {
+    return "The social feed needs a database update. In the Supabase SQL Editor, run supabase/migrations/20261031180000_social_feed.sql";
+  }
   if (missing && /approve_job/i.test(msg)) {
     return "Approving needs the first database setup. In the Supabase SQL Editor, run supabase/migrations/20261031120000_init.sql";
   }
@@ -53,6 +57,15 @@ async function rpc(name, args) {
   const { data, error } = await getSupabase().rpc(name, args);
   if (error) throw new Error(friendlyError(error));
   return data;
+}
+
+async function rpcIfReady(name, args) {
+  try {
+    return await rpc(name, args);
+  } catch (error) {
+    if (/social_feed\.sql|schema cache|could not find the function|does not exist/i.test(error?.message || "")) return null;
+    throw error;
+  }
 }
 
 export async function loadProfile() {
@@ -110,24 +123,62 @@ export async function submitNewJob({ fields, photos, videos = [], location, exif
   try {
     for (let index = 0; index < photos.length; index += 1) {
       onProgress?.(`Saving photo ${index + 1} of ${photos.length}…`);
+      const photo = photos[index];
       const path = `${userId}/${jobId}/${index + 1}.webp`;
-      const { error: uploadError } = await supabase.storage.from("job-photos-private").upload(path, photos[index].blob, {
+      const { error: uploadError } = await supabase.storage.from("job-photos-private").upload(path, photo.blob, {
         contentType: "image/webp",
         upsert: true,
       });
       if (uploadError) throw new Error(friendlyError(uploadError));
-      await rpc("attach_photo", { p_job_id: jobId, p_storage_path: path });
+      const photoId = await rpc("attach_photo", { p_job_id: jobId, p_storage_path: path });
+      let originalPath = null;
+      if (photo.original && photo.original.size <= 8 * 1024 * 1024) {
+        originalPath = `${userId}/${jobId}/o${index + 1}.webp`;
+        const { error: originalError } = await supabase.storage.from("job-photos-original-private").upload(originalPath, photo.original, {
+          contentType: "image/webp",
+          upsert: true,
+        });
+        if (originalError) originalPath = null;
+      }
+      if (photoId && (photo.stage || originalPath)) {
+        await rpcIfReady("save_photo_extra", {
+          p_photo_id: photoId,
+          p_stage: photo.stage || null,
+          p_original_path: originalPath,
+        });
+      }
     }
     for (let index = 0; index < videos.length; index += 1) {
       onProgress?.(`Saving video ${index + 1} of ${videos.length}…`);
-      const ext = videos[index].ext === "webm" ? "webm" : "mp4";
+      const clip = videos[index];
+      const ext = clip.ext === "webm" ? "webm" : "mp4";
       const path = `${userId}/${jobId}/v${index + 1}.${ext}`;
-      const { error: uploadError } = await supabase.storage.from("job-videos-private").upload(path, videos[index].blob, {
+      const { error: uploadError } = await supabase.storage.from("job-videos-private").upload(path, clip.blob, {
         contentType: ext === "webm" ? "video/webm" : "video/mp4",
         upsert: true,
       });
       if (uploadError) throw new Error(friendlyError(uploadError));
-      await rpc("attach_video", { p_job_id: jobId, p_storage_path: path });
+      const videoId = await rpc("attach_video", { p_job_id: jobId, p_storage_path: path });
+      let originalPath = null;
+      const source = clip.file;
+      const sourceExt = source?.type?.includes("webm") ? "webm" : "mp4";
+      if (source && source.size > 0 && source.size <= MAX_ORIGINAL_BYTES && (sourceExt === "mp4" || sourceExt === "webm")) {
+        originalPath = `${userId}/${jobId}/full${index + 1}.${sourceExt}`;
+        const { error: originalError } = await supabase.storage.from("job-videos-original-private").upload(originalPath, source, {
+          contentType: sourceExt === "webm" ? "video/webm" : "video/mp4",
+          upsert: true,
+        });
+        if (originalError) originalPath = null;
+      }
+      if (videoId) {
+        await rpcIfReady("save_video_extra", {
+          p_video_id: videoId,
+          p_width: Math.round(clip.width || 0) || null,
+          p_height: Math.round(clip.height || 0) || null,
+          p_duration_s: Number(clip.duration) || null,
+          p_original_path: originalPath,
+        });
+      }
     }
   } catch (error) {
     await rpc("delete_own_job", { p_job_id: jobId }).catch(() => {});
@@ -297,6 +348,10 @@ export async function approveJob(job, form, orderedPhotos, onProgress) {
       p_public_urls: videoUrls,
     });
   }
+  await publishOriginals(job, form, orderedPhotos);
+  if (form.privacyChecked != null) {
+    await rpc("set_privacy_checked", { p_job_id: job.id, p_checked: Boolean(form.privacyChecked) });
+  }
   return approved;
 }
 
@@ -316,6 +371,44 @@ export async function updateApprovedJob(job, form, orderedPhotos) {
     p_review_date: form.reviewDate || null,
     p_gbp_url: form.gbpUrl || null,
   });
+}
+
+async function publishOriginals(job, form, orderedPhotos) {
+  const supabase = getSupabase();
+  for (let index = 0; index < orderedPhotos.length; index += 1) {
+    const photo = orderedPhotos[index];
+    if (!photo.original_path) continue;
+    const { data, error } = await supabase.storage.from("job-photos-original-private").download(photo.original_path);
+    if (error || !data) continue;
+    const filename = originalPhotoFileName(form.service, form.town, form.date, index + 1);
+    const bucket = supabase.storage.from("job-photos-original");
+    const uploaded = await bucket.upload(filename, data, { contentType: "image/webp", cacheControl: "31536000", upsert: false });
+    if (uploaded.error) continue;
+    const { data: pub } = bucket.getPublicUrl(filename);
+    await rpc("publish_photo_original", { p_photo_id: photo.id, p_url: pub.publicUrl });
+  }
+  const clips = (job.job_videos || []).slice().sort((a, b) => a.sort_order - b.sort_order);
+  for (let index = 0; index < clips.length; index += 1) {
+    const video = clips[index];
+    if (!video.original_path) continue;
+    const { data, error } = await supabase.storage.from("job-videos-original-private").download(video.original_path);
+    if (error || !data) continue;
+    const ext = video.original_path.endsWith(".webm") ? "webm" : "mp4";
+    const filename = originalVideoFileName(form.service, form.town, form.date, index + 1, ext);
+    const bucket = supabase.storage.from("job-videos-original");
+    const uploaded = await bucket.upload(filename, data, {
+      contentType: ext === "webm" ? "video/webm" : "video/mp4",
+      cacheControl: "31536000",
+      upsert: false,
+    });
+    if (uploaded.error) continue;
+    const { data: pub } = bucket.getPublicUrl(filename);
+    await rpc("publish_video_original", { p_video_id: video.id, p_url: pub.publicUrl });
+  }
+}
+
+export function setSocialSkip(jobId, skip) {
+  return rpc("set_social_skip", { p_job_id: jobId, p_skip: skip });
 }
 
 export function mergeJobs(primaryId, childId) {
@@ -393,8 +486,10 @@ export async function deleteStaffJob(job) {
   const removals = [
     ["job-photos-private", storageNames(info.privatePhotos)],
     ["job-photos", storageNames(info.publicPhotos)],
+    ["job-photos-original-private", storageNames(info.originalPhotos)],
     ["job-videos-private", storageNames(info.privateVideos)],
     ["job-videos", storageNames(info.publicVideos)],
+    ["job-videos-original-private", storageNames(info.originalVideos)],
   ];
   const problems = [];
   for (const [bucket, names] of removals) {

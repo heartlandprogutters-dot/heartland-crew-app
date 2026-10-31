@@ -294,6 +294,7 @@ function renderDetail(job, ctx, status, onBack) {
       reviewDate: any ? when : null,
       gbpUrl: gbp.value.trim() || null,
       reason: reason.value,
+      privacyChecked: privacyBox.checked,
     };
   }
 
@@ -347,6 +348,25 @@ function renderDetail(job, ctx, status, onBack) {
     }
   }
 
+  const privacyBox = el("input", { type: "checkbox", dataset: { testid: "privacy-checked" } });
+  privacyBox.checked = Boolean(job.privacy_checked);
+  const privacyLine = el("label", { class: "checkline" }, [
+    privacyBox,
+    el("span", { text: "Photos show no faces, plates, house numbers, or family." }),
+  ]);
+  const socialSkip = el("input", { type: "checkbox", dataset: { testid: "no-social" } });
+  socialSkip.checked = job.social_status === "skip";
+  socialSkip.addEventListener("change", () => run(async () => {
+    if (ctx.actions.setSocialSkip) await ctx.actions.setSocialSkip(job.id, socialSkip.checked);
+    job.social_status = socialSkip.checked ? "skip" : (job.social_status === "skip" ? "pending" : job.social_status);
+    showActionStatus(socialSkip.checked ? "This job will not be posted on social." : "This job is waiting for social again.");
+  }));
+  const socialLine = job.status === "approved"
+    ? el("label", { class: "checkline" }, [
+      socialSkip,
+      el("span", { text: "No social" }),
+    ])
+    : null;
   const buttons = el("div", { class: "row wrap" });
   const deleteButton = el("button", {
     type: "button",
@@ -525,6 +545,8 @@ function renderDetail(job, ctx, status, onBack) {
       }),
     }),
     field(job.status === "approved" ? "Reason if you take it off the website" : "Reason if you reject it", reason),
+    privacyLine,
+    socialLine,
     el("div", { class: "stack approve-actions", dataset: { approveActions: "true" } }, [
       actionError,
       actionStatus,

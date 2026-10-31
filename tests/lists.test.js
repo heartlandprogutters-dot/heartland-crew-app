@@ -57,4 +57,8 @@ test("upload and sign-in failures stay in plain words", () => {
     friendlyError({ message: "Could not find the function public.settle_job in the schema cache" }),
     /20261031170000_job_merge\.sql/,
   );
+  assert.match(
+    friendlyError({ message: "Could not find the function public.public_social_feed(text) in the schema cache" }),
+    /20261031180000_social_feed\.sql/,
+  );
 });

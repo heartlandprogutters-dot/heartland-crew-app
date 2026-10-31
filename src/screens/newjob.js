@@ -3,9 +3,10 @@ import { CENSUS_GEOCODER, GEOCODER_REVERSE, GEOCODER_SEARCH } from "../config.js
 import { el, field } from "../lib/dom.js";
 import { todayISO } from "../lib/format.js";
 import { createLookup } from "../lib/geo.js";
-import { resizeToWebp, browserSupportsWebp } from "../lib/photos.js";
+import { encodeOriginal, resizeToWebp, browserSupportsWebp } from "../lib/photos.js";
 import { inspectPublicText } from "../lib/privacy.js";
 import {
+  MAX_ORIGINAL_BYTES,
   canTrimOnThisDevice,
   clipStartLimit,
   defaultClipWindow,
@@ -136,7 +137,17 @@ export function renderNewJob({ submit, restoreDraft = true }) {
         },
       });
       const img = el("img", { src: photo.url, alt: `Photo ${index + 1} preview` });
-      return el("figure", { class: "photo" }, [img, remove]);
+      const stage = el("select", { dataset: { testid: "photo-stage" }, "aria-label": `Stage for photo ${index + 1}` }, [
+        el("option", { value: "", text: "Stage" }),
+        el("option", { value: "before", text: "Before" }),
+        el("option", { value: "during", text: "During" }),
+        el("option", { value: "after", text: "After" }),
+      ]);
+      stage.value = photo.stage || "";
+      stage.addEventListener("change", () => {
+        photo.stage = stage.value || null;
+      });
+      return el("figure", { class: "photo" }, [img, stage, remove]);
     }));
   }
 
@@ -151,7 +162,8 @@ export function renderNewJob({ submit, restoreDraft = true }) {
       status.textContent = `Preparing photo ${photos.length + 1}…`;
       const exif = await readPhotoExif(file);
       const blob = await resizeToWebp(file);
-      photos.push({ blob, url: URL.createObjectURL(blob), exif });
+      const original = await encodeOriginal(file);
+      photos.push({ blob, original, url: URL.createObjectURL(blob), exif, stage: null });
       renderThumbs();
     }
     status.textContent = photos.length ? `${photos.length} photo${photos.length === 1 ? "" : "s"} ready.` : "";
@@ -250,7 +262,11 @@ export function renderNewJob({ submit, restoreDraft = true }) {
       start: window.start,
       length: window.length,
       blob: null,
+      keepOriginal: file.size > 0 && file.size <= MAX_ORIGINAL_BYTES,
     });
+    if (file.size > MAX_ORIGINAL_BYTES) {
+      status.textContent = "This video is over 50 MB, so only the 30 second clip will be saved.";
+    }
     renderClips();
     status.textContent = preview.duration > 30
       ? `Video added. The middle 30 seconds will be kept (${formatClock(window.start)} to ${formatClock(window.start + window.length)}).`
@@ -511,7 +527,7 @@ export function renderNewJob({ submit, restoreDraft = true }) {
       take,
       pick,
       thumbs,
-      el("p", { class: "hint", text: "Up to 8 photos. Each one is shrunk to a WebP about 150 KB wide, max 1200 px. Camera location is stripped from the file." }),
+      el("p", { class: "hint", text: "Up to 8 photos. Each one is shrunk for the website. A larger copy is kept for social, without the camera location. Stage is optional." }),
       el("h3", { text: "Video" }),
       el("div", { class: "row" }, [
         el("button", { type: "button", class: "btn", dataset: { testid: "record-video" }, text: "Record video", onclick: () => recordVideo.click() }),

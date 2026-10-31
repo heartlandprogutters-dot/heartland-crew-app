@@ -1,5 +1,6 @@
 export const MAX_CLIP_SECONDS = 30;
 export const MAX_VIDEO_BYTES = 20 * 1024 * 1024;
+export const MAX_ORIGINAL_BYTES = 50 * 1024 * 1024;
 
 const MIME_CANDIDATES = [
   "video/mp4;codecs=avc1.42E01E,mp4a.40.2",

@@ -261,6 +261,7 @@ input[type="range"] { min-height: 32px; padding: 0; }
   bottom: 0;
 }
 .photo { position: relative; margin: 0; }
+.photo select { width: 100%; margin-top: 6px; }
 .photo.main img { outline: 3px solid var(--copper); outline-offset: -3px; }
 .photo .remove {
   position: absolute;

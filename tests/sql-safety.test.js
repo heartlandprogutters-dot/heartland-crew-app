@@ -58,8 +58,12 @@ test("row level security is enabled and the anon key is not handed the private t
 
 test("the app has no public sign-up and no service role key", () => {
   assert.equal(/\.signUp\(/.test(srcFiles), false);
-  assert.match(config, /YOUR_PROJECT/);
-  assert.match(config, /YOUR_SUPABASE_ANON_KEY/);
   assert.equal(/service_role\s*=/.test(config), false);
   assert.match(config, /Never put the service_role key/);
+  const url = config.match(/SUPABASE_URL = "([^"]+)"/)[1];
+  const key = config.match(/SUPABASE_ANON_KEY = "([^"]+)"/)[1];
+  assert.match(url, /^https:\/\/[a-z0-9-]+\.supabase\.co$/);
+  const payload = JSON.parse(Buffer.from(key.split(".")[1], "base64url").toString());
+  assert.equal(payload.role, "anon");
+  assert.equal(payload.iss, "supabase");
 });

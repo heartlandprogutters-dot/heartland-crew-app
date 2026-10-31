@@ -1,10 +1,10 @@
 // Heartland Crew settings.
-// Replace the two YOUR_... values, then commit this file and let GitHub Pages rebuild.
-// Use the anon public key from Supabase → Project Settings → API.
-// Never put the service_role key in this file. That key bypasses every privacy rule.
+// This is the public anon key. It is safe in the app because Row Level Security
+// decides what each person can read. Never put the service_role key in this file.
+// That key bypasses every privacy rule.
 
-export const SUPABASE_URL = "https://YOUR_PROJECT.supabase.co";
-export const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
+export const SUPABASE_URL = "https://jrhvtgtrfimplhvktsdz.supabase.co";
+export const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpyaHZ0Z3RyZmltcGxodmt0c2R6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM0NTY5NjUsImV4cCI6MjEwOTAzMjk2NX0.tKhpDBQPtNDyBd0wL5GqYLhOrLLMiJWlCRsCBH-68jc";
 
 // Address lookup uses OpenStreetMap Nominatim (no key).
 // The app calls it only when someone taps "Use my location" or "Find address",

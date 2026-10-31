@@ -89,6 +89,14 @@ function paint(root, data, ctx) {
         const next = ctx.hashFor();
         if (location.hash !== next) location.hash = next;
       },
+      finishDeleted(jobId) {
+        data.jobs = data.jobs.filter((item) => item.id !== jobId);
+        sessionStorage.setItem("heartland-flash", "Deleted. It's off the map.");
+        showToast("Deleted. It's off the map.", "ok");
+        paint(root, data, { ...ctx, selectedId: null });
+        const next = ctx.hashFor();
+        if (location.hash !== next) location.hash = next;
+      },
     }, status, () => {
       const next = ctx.hashFor();
       if (location.hash === next) paint(root, data, { ...ctx, selectedId: null });
@@ -284,6 +292,32 @@ function renderDetail(job, ctx, status, onBack) {
   }
 
   const buttons = el("div", { class: "row wrap" });
+  const deleteButton = el("button", {
+    type: "button",
+    class: "btn danger",
+    dataset: { testid: "delete-job" },
+    text: "Delete",
+    onclick: (event) => {
+      if (!confirm("Delete this job? It comes off the website map. Photos and videos are removed. This cannot be undone.")) return;
+      const button = event.currentTarget;
+      button.disabled = true;
+      button.textContent = "Deleting…";
+      showToast("Deleting…", "busy");
+      run(async () => {
+        try {
+          const result = await ctx.actions.deleteJob(job);
+          if (typeof ctx.finishDeleted === "function") ctx.finishDeleted(job.id);
+          if (result?.storageWarning) {
+            showToast("Deleted from the map. A file could not be removed from storage.", "error");
+          }
+        } catch (err) {
+          button.disabled = false;
+          button.textContent = "Delete";
+          throw err;
+        }
+      });
+    },
+  });
   if (job.status === "pending") {
     buttons.append(
       el("button", { type: "button", class: "btn primary", dataset: { testid: "approve" }, text: "Approve", onclick: (event) => {
@@ -343,6 +377,7 @@ function renderDetail(job, ctx, status, onBack) {
       location.hash = ctx.hashFor();
     }) }));
   }
+  buttons.append(deleteButton);
 
   summary.addEventListener("input", showWarning);
   drawPhotos();

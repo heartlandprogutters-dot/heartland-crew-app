@@ -137,6 +137,10 @@ export function renderPractice(route, rerender) {
           job.status = "approved";
           job.rejection_reason = null;
         },
+        async deleteJob(job) {
+          state.jobs = state.jobs.filter((item) => item.id !== job.id);
+          return { storageWarning: "" };
+        },
         async movePin(id, lat, lng) {
           const job = state.jobs.find((item) => item.id === id);
           job.job_locations = {

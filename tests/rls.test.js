@@ -39,6 +39,7 @@ test("row level security keeps exact locations off the public feed", { timeout: 
     await db.exec(read("../supabase/migrations/20261031130000_videos.sql"));
     await db.exec(read("../supabase/migrations/20261031140000_move_pin.sql"));
     await db.exec(read("../supabase/migrations/20261031150000_roles.sql"));
+    await db.exec(read("../supabase/migrations/20261031160000_delete_job.sql"));
 
     const openFunctions = await db.query(`
       select proname
@@ -412,10 +413,25 @@ test("row level security keeps exact locations off the public feed", { timeout: 
     ));
     assert.equal(haleyPrivate.rows.length, 1);
 
+    await expectFail(
+      () => asUser(db, "authenticated", sam, (tx) => tx.query(`select public.delete_job($1)`, [jobId])),
+      /Only Kent or Haley/,
+    );
+    const removed = asJson((await asUser(db, "authenticated", kent, (tx) => tx.query(
+      `select public.delete_job($1) as result`,
+      [jobId],
+    ))).rows[0].result);
+    assert.ok(Array.isArray(removed.privatePhotos));
+    const gone = await db.query(`select id from public.jobs where id = $1`, [jobId]);
+    assert.equal(gone.rows.length, 0);
+    const feedAfterDelete = asJson((await asUser(db, "anon", null, (tx) => tx.query(`select public.public_jobs_feed() as feed`))).rows[0].feed);
+    assert.equal(feedAfterDelete.some((item) => item.id === jobId), false);
+
     await db.exec(read("../supabase/migrations/20261031120100_storage.sql"));
     await db.exec(read("../supabase/migrations/20261031130000_videos.sql"));
     await db.exec(read("../supabase/migrations/20261031140000_move_pin.sql"));
     await db.exec(read("../supabase/migrations/20261031150000_roles.sql"));
+    await db.exec(read("../supabase/migrations/20261031160000_delete_job.sql"));
     const stillThere = await asUser(db, "anon", null, (tx) => tx.query(
       `select count(*)::int as n from storage.objects where bucket_id = 'job-photos'`,
     ));

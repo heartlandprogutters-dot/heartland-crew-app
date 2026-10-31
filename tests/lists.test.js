@@ -49,4 +49,8 @@ test("upload and sign-in failures stay in plain words", () => {
     friendlyError({ message: "new row for relation \"profiles\" violates check constraint \"profiles_role_check\"" }),
     /20261031150000_roles\.sql/,
   );
+  assert.match(
+    friendlyError({ message: "Could not find the function public.delete_job(text) in the schema cache" }),
+    /20261031160000_delete_job\.sql/,
+  );
 });

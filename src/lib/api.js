@@ -30,6 +30,9 @@ export function explainDatabaseError(message) {
   if (missing && /publish_job_videos|attach_video|job_videos/i.test(msg)) {
     return "Short videos need a database update. In the Supabase SQL Editor, run supabase/migrations/20261031130000_videos.sql";
   }
+  if (missing && /delete_job/i.test(msg)) {
+    return "Deleting a job needs a database update. In the Supabase SQL Editor, run supabase/migrations/20261031160000_delete_job.sql";
+  }
   if (missing && /approve_job/i.test(msg)) {
     return "Approving needs the first database setup. In the Supabase SQL Editor, run supabase/migrations/20261031120000_init.sql";
   }
@@ -297,6 +300,32 @@ export async function updateApprovedJob(job, form, orderedPhotos) {
 
 export function moveExactPin(jobId, lat, lng) {
   return rpc("move_exact_pin", { p_job_id: jobId, p_exact_lat: lat, p_exact_lng: lng });
+}
+
+function storageNames(value) {
+  const list = Array.isArray(value) ? value : [];
+  return list
+    .map((item) => decodeURIComponent(String(item || "").split("?")[0]))
+    .filter((name) => name && name !== "undefined");
+}
+
+export async function deleteStaffJob(job) {
+  const data = await rpc("delete_job", { p_job_id: job.id });
+  const info = typeof data === "string" ? JSON.parse(data) : (data || {});
+  const supabase = getSupabase();
+  const removals = [
+    ["job-photos-private", storageNames(info.privatePhotos)],
+    ["job-photos", storageNames(info.publicPhotos)],
+    ["job-videos-private", storageNames(info.privateVideos)],
+    ["job-videos", storageNames(info.publicVideos)],
+  ];
+  const problems = [];
+  for (const [bucket, names] of removals) {
+    if (!names.length) continue;
+    const { error } = await supabase.storage.from(bucket).remove(names);
+    if (error) problems.push(error.message);
+  }
+  return { storageWarning: problems.length ? problems.join(" ") : "" };
 }
 
 export function rejectJob(jobId, reason) {

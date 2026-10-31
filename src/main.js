@@ -21,6 +21,7 @@ import {
   importJobs,
   removeJobVideo,
   moveExactPin,
+  deleteStaffJob,
   listPeople,
   createPerson,
   setPersonRole,
@@ -179,6 +180,7 @@ function draw() {
         import: importJobs,
         removeVideo: (_job, video) => removeJobVideo(video),
         movePin: (id, lat, lng) => moveExactPin(id, lat, lng),
+        deleteJob: (job) => deleteStaffJob(job),
       },
     });
   } else if (route.name === "crew") {

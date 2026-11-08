@@ -111,12 +111,9 @@ Password-reset emails send people back to this address.
 
 ## 10. Keep the free database awake
 
-Supabase pauses a free project after about a week with no traffic. A daily GitHub Action pings it so that does not happen.
+Supabase pauses a free project after about a week with no traffic. A GitHub Action pings the public jobs feed once a day so that does not happen.
 
-1. On GitHub open **Settings** → **Secrets and variables** → **Actions** → **New repository secret**.
-2. Name: `SUPABASE_URL`. Value: the Project URL from step 7.
-3. Add another secret. Name: `SUPABASE_ANON_KEY`. Value: the anon key from step 7.
-4. Open **Actions** → **Keep Supabase awake** → **Run workflow** once, to prove the secrets work.
+The workflow uses the `SUPABASE_URL` and `SUPABASE_ANON_KEY` repository secrets when those are set. If they are empty, it reads the same public values from `src/config.js`. No secret is required for the daily ping.
 
 ## 11. Add Haley and the crew
 

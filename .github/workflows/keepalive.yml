@@ -1,7 +1,7 @@
 name: Keep Supabase awake
 
-# Free Supabase projects pause after about a week without traffic.
-# This calls the public jobs feed once a day. It does not write anything.
+# Free Supabase projects pause after about a week without database traffic.
+# This runs once a day. It only reads the public jobs feed. It does not write.
 on:
   schedule:
     - cron: "17 8 * * *"
@@ -11,21 +11,57 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
+      - name: Check out the app
+        uses: actions/checkout@v4
+
       - name: Ping the public jobs feed
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SECRET_URL: ${{ secrets.SUPABASE_URL }}
+          SECRET_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           set -euo pipefail
-          if [ -z "${SUPABASE_URL}" ] || [ -z "${SUPABASE_ANON_KEY}" ]; then
-            echo "Add repository secrets SUPABASE_URL and SUPABASE_ANON_KEY (Settings → Secrets and variables → Actions)."
+          url="${SECRET_URL}"
+          key="${SECRET_KEY}"
+          if [ -n "$url" ] && [ -n "$key" ]; then
+            echo "Using repository secrets SUPABASE_URL and SUPABASE_ANON_KEY."
+          else
+            echo "Repository secrets are unset. Using the public URL and anon key from src/config.js."
+            url=$(sed -n 's/^export const SUPABASE_URL = "\(.*\)";/\1/p' src/config.js)
+            key=$(sed -n 's/^export const SUPABASE_ANON_KEY = "\(.*\)";/\1/p' src/config.js)
+          fi
+          if [ -z "$url" ] || [ -z "$key" ]; then
+            echo "Could not find SUPABASE_URL or SUPABASE_ANON_KEY in secrets or src/config.js."
             exit 1
           fi
-          curl --fail-with-body --silent --show-error \
-            --retry 3 --retry-delay 10 \
-            -H "apikey: ${SUPABASE_ANON_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
+          body=$(mktemp)
+          set +e
+          status=$(curl -sS -o "$body" -w "%{http_code}" \
+            --retry 3 --retry-delay 10 --retry-all-errors \
+            -X POST \
+            -H "apikey: ${key}" \
+            -H "Authorization: Bearer ${key}" \
             -H "Accept: application/json" \
-            "${SUPABASE_URL%/}/rest/v1/rpc/public_jobs_feed"
+            -H "Content-Type: application/json" \
+            --data '{}' \
+            "${url%/}/rest/v1/rpc/public_jobs_feed")
+          curl_exit=$?
+          set -e
+          echo "HTTP ${status:-000}"
+          echo "Response body:"
+          cat "$body"
           echo
-          echo "Supabase answered."
+          if [ "$curl_exit" -ne 0 ]; then
+            echo "The request to public_jobs_feed did not complete (curl exit ${curl_exit})."
+            echo "If Supabase says the project is paused, open the dashboard and restore heartland-crew."
+            exit 1
+          fi
+          case "${status:-000}" in
+            2*)
+              echo "Supabase answered the public_jobs_feed query."
+              ;;
+            *)
+              echo "Supabase ping failed with HTTP ${status:-000}."
+              echo "If the body says the project is paused, open the Supabase dashboard and restore heartland-crew."
+              exit 1
+              ;;
+          esac
